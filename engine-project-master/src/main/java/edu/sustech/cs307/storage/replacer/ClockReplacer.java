@@ -97,4 +97,11 @@ public class ClockReplacer implements PageReplacer{
     public int size() {
         return frames.size();
     }
+
+    @Override
+    public void Clear() {
+        frames.clear();
+        frameMap.clear();
+        clockHand = 0;
+    }
 }

@@ -232,6 +232,17 @@ public class BufferPool {
         }
     }
 
+    public void Reset() {
+        this.replacer.Clear();
+        this.pageMap.clear();
+        this.freeList.clear();
+        this.pages.clear();
+        for (int i = 0; i < poolSize; i++) {
+            this.freeList.add(i);
+            this.pages.add(new Page());
+        }
+    }
+
     /**
      * 查找一个受害者页面以进行替换。
      * 

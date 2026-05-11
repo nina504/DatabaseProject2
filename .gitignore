@@ -1,0 +1,17 @@
+# Maven / Java build output
+target/
+*.class
+
+# Local database/runtime output
+CS307-DB/
+.CS307-DB/
+disk_manager_meta.json
+
+# IDE/editor files
+.idea/
+.vscode/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db

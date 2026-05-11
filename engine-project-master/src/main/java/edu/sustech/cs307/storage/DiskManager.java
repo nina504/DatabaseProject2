@@ -30,7 +30,11 @@ public class DiskManager {
     private static final String DISK_MANAGER_META = "disk_manager_meta.json";
 
     public static Map<String, Integer> read_disk_manager_meta() throws DBException {
-        Path path = Path.of(String.format("%s/%s", DBEntry.DB_NAME, DISK_MANAGER_META));
+        return read_disk_manager_meta(DBEntry.DB_NAME);
+    }
+
+    public static Map<String, Integer> read_disk_manager_meta(String rootDir) throws DBException {
+        Path path = Path.of(rootDir, DISK_MANAGER_META);
         // read the meta file
         File META_FILE = new File(path.toString());
         if (!META_FILE.exists()) {
@@ -61,9 +65,13 @@ public class DiskManager {
 
     public static void dump_disk_manager_meta(DiskManager disk_manager) throws DBException {
         Map<String, Integer> filePages = disk_manager.filePages;
-        Path path = Path.of(String.format("%s/%s", DBEntry.DB_NAME, DISK_MANAGER_META));
+        Path path = Path.of(disk_manager.getCurrentDir(), DISK_MANAGER_META);
         // write the meta file
         File META_FILE = new File(path.toString());
+        File parent = META_FILE.getParentFile();
+        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+            throw new DBException(ExceptionTypes.UnableLoadMetadata("Failed to create metadata directory"));
+        }
         try (Writer writer = new FileWriter(META_FILE)) {
             ObjectMapper objectMapper = new ObjectMapper();
             objectMapper.writeValue(writer, filePages);

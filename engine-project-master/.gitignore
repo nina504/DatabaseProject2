@@ -29,3 +29,14 @@ bin/
 .DS_Store
 .idea/
 .CS307-DB/
+
+### Maven / Java ###
+target/
+*.class
+
+### Local database/runtime output ###
+CS307-DB/
+disk_manager_meta.json
+
+### Editor ###
+*.iml

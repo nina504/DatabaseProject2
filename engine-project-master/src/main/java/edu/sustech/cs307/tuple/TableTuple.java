@@ -46,12 +46,17 @@ public class TableTuple extends Tuple {
     }
 
     private Value convertByteBufToValue(ByteBuf byteBuf, ValueType columnType) throws DBException {
-        if (columnType == ValueType.INTEGER) {
-            return new Value(byteBuf.getLong(0));
-        } else if (columnType == ValueType.CHAR) {
-            return new Value(byteBuf.getCharSequence(0, 64, java.nio.charset.StandardCharsets.UTF_8).toString());
-        } else if (columnType == ValueType.FLOAT) {
-            return new Value(byteBuf.getDouble(0));
+        byte[] bytes = new byte[byteBuf.readableBytes()];
+        byteBuf.getBytes(0, bytes);
+        if (columnType == ValueType.CHAR) {
+            int length = 0;
+            while (length < bytes.length && bytes[length] != 0) {
+                length++;
+            }
+            return new Value(new String(bytes, 0, length));
+        }
+        if (columnType == ValueType.INTEGER || columnType == ValueType.CHAR || columnType == ValueType.FLOAT) {
+            return Value.FromByte(bytes, columnType);
         } else {
             throw new DBException(ExceptionTypes.UnsupportedValueType(columnType));
         }

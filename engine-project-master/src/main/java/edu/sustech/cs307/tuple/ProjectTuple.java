@@ -30,8 +30,14 @@ public class ProjectTuple extends Tuple {
     @Override
     public Value getValue(TabCol tabCol) throws DBException {
         for (TabCol projectColumn : schema) {
-            if (projectColumn.equals(tabCol)) {
-                return inputTuple.getValue(tabCol); // Get value from input tuple
+            boolean sameColumn = projectColumn.getColumnName().equalsIgnoreCase(tabCol.getColumnName());
+            boolean sameTable = projectColumn.getTableName() == null
+                    || projectColumn.getTableName().isEmpty()
+                    || tabCol.getTableName() == null
+                    || tabCol.getTableName().isEmpty()
+                    || projectColumn.getTableName().equalsIgnoreCase(tabCol.getTableName());
+            if (sameColumn && sameTable) {
+                return inputTuple.getValue(projectColumn); // Get value from input tuple
             }
         }
         return null; // Column not in projection list

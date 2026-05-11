@@ -79,18 +79,24 @@ public class DBManager {
      * Each table name is displayed in a separate row within the ASCII borders.
      */
     public void showTables() {
-        throw new RuntimeException("Not implement");
-        //todo: complete show table
-        // | -- TABLE -- |
-        // | -- ${table} -- |
-        // | ----------- |
+        Logger.info("|-----------|");
+        Logger.info("|  Tables   |");
+        Logger.info("|-----------|");
+        for (String tableName : metaManager.getTableNames()) {
+            Logger.info("|{}|", StringUtils.center(tableName, 11, ' '));
+        }
+        Logger.info("|-----------|");
     }
 
-    public void descTable(String table_name) {
-        throw new RuntimeException("Not implemented yet");
-        //todo: complete describe table
-        // | -- TABLE Field -- | -- Column Type --|
-        // | --  ${table field} --| -- ${table type} --|
+    public void descTable(String table_name) throws DBException {
+        TableMeta tableMeta = metaManager.getTable(table_name);
+        Logger.info("|-------------------------------|");
+        Logger.info("|{}|{}|", StringUtils.center("Field", 15, ' '), StringUtils.center("Type", 15, ' '));
+        Logger.info("|-------------------------------|");
+        for (ColumnMeta column : tableMeta.columns_list) {
+            Logger.info("|{}|{}|", StringUtils.center(column.name, 15, ' '), StringUtils.center(column.type.toString(), 15, ' '));
+        }
+        Logger.info("|-------------------------------|");
     }
 
     /**
@@ -128,7 +134,19 @@ public class DBManager {
      *                     errors during deletion
      */
     public void dropTable(String table_name) throws DBException {
-        // todo: finish drop table method
+        if (!isTableExists(table_name)) {
+            throw new DBException(ExceptionTypes.TableDoesNotExist(table_name));
+        }
+        String dataFile = String.format("%s/%s", table_name, "data");
+        bufferPool.DeleteAllPages(dataFile);
+        recordManager.DeleteFile(dataFile);
+        metaManager.dropTable(table_name);
+        File tableDir = new File(String.format("%s/%s", diskManager.getCurrentDir(), table_name));
+        if (tableDir.exists()) {
+            deleteDirectory(tableDir);
+        }
+        persistRuntimeState();
+        Logger.info("Successfully dropped table: {}", table_name);
     }
 
     /**

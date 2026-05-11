@@ -9,6 +9,11 @@ import edu.sustech.cs307.value.ValueType;
 import net.sf.jsqlparser.expression.*;
 import net.sf.jsqlparser.expression.operators.conditional.AndExpression;
 import net.sf.jsqlparser.expression.operators.conditional.OrExpression;
+import net.sf.jsqlparser.expression.operators.relational.EqualsTo;
+import net.sf.jsqlparser.expression.operators.relational.GreaterThan;
+import net.sf.jsqlparser.expression.operators.relational.GreaterThanEquals;
+import net.sf.jsqlparser.expression.operators.relational.MinorThan;
+import net.sf.jsqlparser.expression.operators.relational.MinorThanEquals;
 import net.sf.jsqlparser.schema.Column;
 
 public abstract class Tuple {
@@ -23,15 +28,21 @@ public abstract class Tuple {
     }
 
     private boolean evaluateCondition(Tuple tuple, Expression whereExpr) {
-        //todo: add Or condition
+        if (whereExpr == null) {
+            return true;
+        }
         if (whereExpr instanceof AndExpression andExpr) {
-            // Recursively evaluate left and right expressions
             return evaluateCondition(tuple, andExpr.getLeftExpression())
                     && evaluateCondition(tuple, andExpr.getRightExpression());
+        } else if (whereExpr instanceof OrExpression orExpr) {
+            return evaluateCondition(tuple, orExpr.getLeftExpression())
+                    || evaluateCondition(tuple, orExpr.getRightExpression());
+        } else if (whereExpr instanceof Parenthesis parenthesis) {
+            return evaluateCondition(tuple, parenthesis.getExpression());
         } else if (whereExpr instanceof BinaryExpression binaryExpression) {
             return evaluateBinaryExpression(tuple, binaryExpression);
         } else {
-            return true; // For non-binary and non-AND expressions, just return true for now
+            return true;
         }
     }
 
@@ -46,14 +57,14 @@ public abstract class Tuple {
             if (leftExpr instanceof Column leftColumn) {
                 //get table name
                 String table_name = leftColumn.getTableName();
-                if (tuple instanceof TableTuple) {
+                if (table_name == null || table_name.isEmpty()) {
+                    table_name = findTableNameForColumn(tuple, leftColumn.getColumnName());
+                }
+                if ((table_name == null || table_name.isEmpty()) && tuple instanceof TableTuple) {
                     TableTuple tableTuple = (TableTuple) tuple;
                     table_name = tableTuple.getTableName();
                 }
                 leftValue = tuple.getValue(new TabCol(table_name, leftColumn.getColumnName()));
-                if (leftValue.type == ValueType.CHAR) {
-                    leftValue = new Value(leftValue.toString());
-                }
             } else {
                 leftValue = getConstantValue(leftExpr); // Handle constant left value
             }
@@ -61,7 +72,10 @@ public abstract class Tuple {
             if (rightExpr instanceof Column rightColumn) {
                 //get table name
                 String table_name = rightColumn.getTableName();
-                if (tuple instanceof TableTuple) {
+                if (table_name == null || table_name.isEmpty()) {
+                    table_name = findTableNameForColumn(tuple, rightColumn.getColumnName());
+                }
+                if ((table_name == null || table_name.isEmpty()) && tuple instanceof TableTuple) {
                     TableTuple tableTuple = (TableTuple) tuple;
                     table_name = tableTuple.getTableName();
                 }
@@ -75,10 +89,17 @@ public abstract class Tuple {
                 return false;
 
             int comparisonResult = ValueComparer.compare(leftValue, rightValue);
-            if (operator.equals("=")) {
+            if (binaryExpr instanceof EqualsTo || operator.equals("=")) {
                 return comparisonResult == 0;
+            } else if (binaryExpr instanceof GreaterThan || operator.equals(">")) {
+                return comparisonResult > 0;
+            } else if (binaryExpr instanceof GreaterThanEquals || operator.equals(">=")) {
+                return comparisonResult >= 0;
+            } else if (binaryExpr instanceof MinorThan || operator.equals("<")) {
+                return comparisonResult < 0;
+            } else if (binaryExpr instanceof MinorThanEquals || operator.equals("<=")) {
+                return comparisonResult <= 0;
             }
-            // todo: finish condition > < >= <=
 
         } catch (DBException e) {
             e.printStackTrace(); // Handle exception properly
@@ -97,6 +118,15 @@ public abstract class Tuple {
         return null; // Unsupported constant type
     }
 
+    private String findTableNameForColumn(Tuple tuple, String columnName) {
+        for (TabCol tabCol : tuple.getTupleSchema()) {
+            if (tabCol.getColumnName().equalsIgnoreCase(columnName)) {
+                return tabCol.getTableName();
+            }
+        }
+        return null;
+    }
+
     public Value evaluateExpression(Expression expr) throws DBException {
         if (expr instanceof StringValue) {
             return new Value(((StringValue) expr).getValue(), ValueType.CHAR);
@@ -106,7 +136,11 @@ public abstract class Tuple {
             return new Value(((LongValue) expr).getValue(), ValueType.INTEGER);
         } else if (expr instanceof Column) {
             Column col = (Column) expr;
-            return getValue(new TabCol(col.getTableName(), col.getColumnName()));
+            String tableName = col.getTableName();
+            if (tableName == null || tableName.isEmpty()) {
+                tableName = findTableNameForColumn(this, col.getColumnName());
+            }
+            return getValue(new TabCol(tableName, col.getColumnName()));
         } else {
             throw new DBException(ExceptionTypes.UnsupportedExpression(expr));
         }

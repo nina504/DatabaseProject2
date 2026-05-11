@@ -1,6 +1,7 @@
 package edu.sustech.cs307.physicalOperator;
 
 import edu.sustech.cs307.exception.DBException;
+import edu.sustech.cs307.exception.ExceptionTypes;
 import edu.sustech.cs307.meta.ColumnMeta;
 import edu.sustech.cs307.tuple.ProjectTuple;
 import edu.sustech.cs307.tuple.Tuple;
@@ -66,7 +67,23 @@ public class ProjectOperator implements PhysicalOperator {
 
     @Override
     public ArrayList<ColumnMeta> outputSchema() {
-        //todo: return the fields only appear in select items.
-        return child.outputSchema();
+        ArrayList<ColumnMeta> result = new ArrayList<>();
+        for (TabCol tabCol : outputSchema) {
+            ColumnMeta matched = null;
+            for (ColumnMeta columnMeta : child.outputSchema()) {
+                boolean tableMatches = tabCol.getTableName() == null
+                        || tabCol.getTableName().isEmpty()
+                        || columnMeta.tableName.equalsIgnoreCase(tabCol.getTableName());
+                boolean columnMatches = columnMeta.name.equalsIgnoreCase(tabCol.getColumnName());
+                if (tableMatches && columnMatches) {
+                    matched = columnMeta;
+                    break;
+                }
+            }
+            if (matched != null) {
+                result.add(matched);
+            }
+        }
+        return result;
     }
 }

@@ -27,6 +27,7 @@ public class TableMeta {
 
     public TableMeta(String tableName) {
         this.tableName = tableName;
+        this.columns_list = new ArrayList<>();
         this.columns = new HashMap<>();
         this.indexes = new HashMap<>();
     }
@@ -58,6 +59,7 @@ public class TableMeta {
             throw new DBException(ExceptionTypes.ColumnAlreadyExist(columnName));
         }
         this.columns.put(columnName, column);
+        this.columns_list.add(column);
     }
 
     public void dropColumn(String columnName) throws DBException {
@@ -65,6 +67,7 @@ public class TableMeta {
             throw new DBException(ExceptionTypes.ColumnDoesNotExist(columnName));
         }
         this.columns.remove(columnName);
+        this.columns_list.removeIf(column -> column.name.equals(columnName));
     }
 
     public ColumnMeta getColumnMeta(String columnName) {
@@ -83,7 +86,7 @@ public class TableMeta {
     }
 
     public int columnCount() {
-        return this.columns.size();
+        return this.columns_list == null ? this.columns.size() : this.columns_list.size();
     }
 
     public boolean hasColumn(String columnName) {

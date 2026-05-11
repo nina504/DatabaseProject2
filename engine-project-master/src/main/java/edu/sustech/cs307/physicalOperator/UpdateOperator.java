@@ -24,20 +24,20 @@ import net.sf.jsqlparser.statement.update.UpdateSet;
 public class UpdateOperator implements PhysicalOperator {
     private final SeqScanOperator seqScanOperator;
     private final String tableName;
-    private final UpdateSet updateSet;
+    private final List<UpdateSet> updateSets;
     private final Expression whereExpr;
 
     private int updateCount;
     private boolean isDone;
 
-    public UpdateOperator(PhysicalOperator inputOperator, String tableName, UpdateSet updateSet,
+    public UpdateOperator(PhysicalOperator inputOperator, String tableName, List<UpdateSet> updateSets,
                           Expression whereExpr) {
         if (!(inputOperator instanceof SeqScanOperator seqScanOperator)) {
             throw new RuntimeException("The delete operator only accepts SeqScanOperator as input");
         }
         this.seqScanOperator = seqScanOperator;
         this.tableName = tableName;
-        this.updateSet = updateSet;
+        this.updateSets = updateSets;
         this.whereExpr = whereExpr;
         this.updateCount = 0;
         this.isDone = false;
@@ -62,7 +62,8 @@ public class UpdateOperator implements PhysicalOperator {
                 List<Value> newValues = new ArrayList<>(Arrays.asList(oldValues));
                 TabCol[] schema = tuple.getTupleSchema();
 
-                for (int i = 0; i < this.updateSet.getColumns().size(); i++) {
+                for (UpdateSet updateSet : this.updateSets) {
+                    for (int i = 0; i < updateSet.getColumns().size(); i++) {
                     String targetTable = updateSet.getColumn(i).getTableName();
                     if (targetTable == null) targetTable = tuple.getTableName();
                     String targetColumn = updateSet.getColumn(i).getColumnName();
@@ -79,17 +80,11 @@ public class UpdateOperator implements PhysicalOperator {
                     }
                     Value newValue = tuple.evaluateExpression(updateSet.getValue(i));
                     newValues.set(index, newValue);
+                    }
                 }
                 ByteBuf buffer = Unpooled.buffer();
                 for (Value v : newValues) {
-                    String str = "";
-                    if (v.type == ValueType.CHAR) str = (String) v.value;
-                    if (str.length() == 64) {
-                        ByteBuffer temp = ByteBuffer.allocate(64);
-                        temp.put(str.getBytes());
-                        buffer.writeBytes(temp.array());
-                    }
-                    else buffer.writeBytes(v.ToByte());
+                    buffer.writeBytes(toFixedWidthBytes(v));
                 }
 
                 fileHandle.UpdateRecord(tuple.getRID(), buffer);
@@ -145,5 +140,15 @@ public class UpdateOperator implements PhysicalOperator {
 
     public String getTableName() {
         return tableName;
+    }
+
+    private byte[] toFixedWidthBytes(Value value) {
+        if (value.type == ValueType.CHAR) {
+            ByteBuffer buffer = ByteBuffer.allocate(Value.CHAR_SIZE);
+            byte[] bytes = value.toString().getBytes();
+            buffer.put(bytes, 0, Math.min(bytes.length, Value.CHAR_SIZE));
+            return buffer.array();
+        }
+        return value.ToByte();
     }
 }

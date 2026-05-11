@@ -1,0 +1,10 @@
+C:\Users\Anony\Desktop\DatabaseProject2\engine-project-master\src\test\java\meta\MetaManagerTest.java
+C:\Users\Anony\Desktop\DatabaseProject2\engine-project-master\src\test\java\record\BitMapTest.java
+C:\Users\Anony\Desktop\DatabaseProject2\engine-project-master\src\test\java\record\RecordFileHandleTest.java
+C:\Users\Anony\Desktop\DatabaseProject2\engine-project-master\src\test\java\storage\BufferPoolTest.java
+C:\Users\Anony\Desktop\DatabaseProject2\engine-project-master\src\test\java\storage\ClockReplacerTest.java
+C:\Users\Anony\Desktop\DatabaseProject2\engine-project-master\src\test\java\storage\DiskManagerTest.java
+C:\Users\Anony\Desktop\DatabaseProject2\engine-project-master\src\test\java\storage\LRUReplacerTest.java
+C:\Users\Anony\Desktop\DatabaseProject2\engine-project-master\src\test\java\system\RecordManagerTest.java
+C:\Users\Anony\Desktop\DatabaseProject2\engine-project-master\src\test\java\system\TransactionManagerTest.java
+C:\Users\Anony\Desktop\DatabaseProject2\engine-project-master\src\test\java\value\ValueComparerTest.java

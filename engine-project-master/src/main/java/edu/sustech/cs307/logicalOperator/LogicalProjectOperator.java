@@ -2,6 +2,7 @@ package edu.sustech.cs307.logicalOperator;
 
 import edu.sustech.cs307.exception.DBException;
 import edu.sustech.cs307.exception.ExceptionTypes;
+import edu.sustech.cs307.logicalOperator.LogicalTableScanOperator;
 import edu.sustech.cs307.meta.TabCol;
 import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.statement.select.AllColumns;
@@ -29,14 +30,29 @@ public class LogicalProjectOperator extends LogicalOperator {
     public List<TabCol> getOutputSchema() throws DBException {
         List<TabCol> outputSchema = new ArrayList<>();
         for (SelectItem<?> selectItem : selectItems) {
-            //todo : add selectItem.getExpression() instance of Column
             if (selectItem.getExpression() instanceof AllColumns column) {
                 outputSchema.add(new TabCol("*", "*"));
+            } else if (selectItem.getExpression() instanceof Column column) {
+                String tableName = column.getTableName();
+                if (tableName == null || tableName.isEmpty()) {
+                    tableName = inferSingleTableName(child);
+                }
+                outputSchema.add(new TabCol(tableName, column.getColumnName()));
             } else {
                 throw new DBException(ExceptionTypes.NotSupportedOperation(selectItem.getExpression()));
             }
         }
         return outputSchema;
+    }
+
+    private String inferSingleTableName(LogicalOperator operator) {
+        if (operator instanceof LogicalTableScanOperator tableScanOperator) {
+            return tableScanOperator.getTableName();
+        }
+        if (operator.getChild() != null) {
+            return inferSingleTableName(operator.getChild());
+        }
+        return "";
     }
 
     @Override

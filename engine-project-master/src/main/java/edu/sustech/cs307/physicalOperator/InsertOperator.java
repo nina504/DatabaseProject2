@@ -11,6 +11,7 @@ import edu.sustech.cs307.value.ValueType;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 
+import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.ArrayList;
 
@@ -43,7 +44,7 @@ public class InsertOperator implements PhysicalOperator {
             // Serialize values to ByteBuf
             ByteBuf buffer = Unpooled.buffer();
             for (int i = 0; i < values.size(); i++) {
-                buffer.writeBytes(values.get(i).ToByte());
+                buffer.writeBytes(toFixedWidthBytes(values.get(i)));
                 if ((columnSize == 1) || ((i + 1) % columnSize == 0 && i != 0)) {
                     fileHandle.InsertRecord(buffer);
                     buffer.clear();
@@ -81,6 +82,16 @@ public class InsertOperator implements PhysicalOperator {
 
     public void reset() {
         // nothing to do
+    }
+
+    private byte[] toFixedWidthBytes(Value value) {
+        if (value.type == ValueType.CHAR) {
+            ByteBuffer buffer = ByteBuffer.allocate(Value.CHAR_SIZE);
+            byte[] bytes = value.toString().getBytes();
+            buffer.put(bytes, 0, Math.min(bytes.length, Value.CHAR_SIZE));
+            return buffer.array();
+        }
+        return value.ToByte();
     }
 
     public Tuple getNextTuple() {

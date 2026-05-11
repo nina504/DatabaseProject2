@@ -14,14 +14,39 @@ public class LRUReplacer implements PageReplacer {
     }
 
     public int Victim() {
-        return -1;
+        if (LRUList.isEmpty()) {
+            return -1;
+        }
+        int frameId = LRUList.removeFirst();
+        LRUHash.remove(frameId);
+        return frameId;
     }
 
     public void Pin(int frameId) {
+        if (pinnedFrames.contains(frameId)) {
+            return;
+        }
+        if (LRUHash.contains(frameId)) {
+            LRUHash.remove(frameId);
+            LRUList.remove((Integer) frameId);
+            pinnedFrames.add(frameId);
+            return;
+        }
+        if (size() >= maxSize) {
+            throw new RuntimeException("REPLACER IS FULL");
+        }
+        pinnedFrames.add(frameId);
     }
 
 
     public void Unpin(int frameId) {
+        if (!pinnedFrames.remove(frameId)) {
+            throw new RuntimeException("UNPIN PAGE NOT FOUND");
+        }
+        if (!LRUHash.contains(frameId)) {
+            LRUHash.add(frameId);
+            LRUList.addLast(frameId);
+        }
     }
 
 

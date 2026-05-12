@@ -2,6 +2,7 @@ package edu.sustech.cs307.physicalOperator;
 
 import edu.sustech.cs307.exception.DBException;
 import edu.sustech.cs307.meta.ColumnMeta;
+import edu.sustech.cs307.record.RID;
 import edu.sustech.cs307.system.DBManager;
 import edu.sustech.cs307.tuple.TableTuple;
 import edu.sustech.cs307.tuple.TempTuple;
@@ -46,7 +47,10 @@ public class InsertOperator implements PhysicalOperator {
             for (int i = 0; i < values.size(); i++) {
                 buffer.writeBytes(toFixedWidthBytes(values.get(i)));
                 if ((columnSize == 1) || ((i + 1) % columnSize == 0 && i != 0)) {
-                    fileHandle.InsertRecord(buffer);
+                    RID rid = fileHandle.InsertRecord(buffer);
+                    int rowStart = i + 1 - columnSize;
+                    Value[] rowValues = values.subList(rowStart, i + 1).toArray(new Value[0]);
+                    dbManager.insertIndexEntries(data_file, rid, rowValues);
                     buffer.clear();
                 }
             }

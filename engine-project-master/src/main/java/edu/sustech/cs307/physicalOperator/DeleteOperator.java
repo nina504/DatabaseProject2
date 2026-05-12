@@ -3,6 +3,7 @@ package edu.sustech.cs307.physicalOperator;
 import edu.sustech.cs307.exception.DBException;
 import edu.sustech.cs307.meta.ColumnMeta;
 import edu.sustech.cs307.record.RecordFileHandle;
+import edu.sustech.cs307.system.DBManager;
 import edu.sustech.cs307.tuple.TableTuple;
 import edu.sustech.cs307.tuple.TempTuple;
 import edu.sustech.cs307.tuple.Tuple;
@@ -15,15 +16,19 @@ import java.util.ArrayList;
 public class DeleteOperator implements PhysicalOperator {
     private final SeqScanOperator seqScanOperator;
     private final Expression whereExpr;
+    private final DBManager dbManager;
+    private final String tableName;
     private int deleteCount;
     private boolean done;
 
-    public DeleteOperator(PhysicalOperator inputOperator, Expression whereExpr) {
+    public DeleteOperator(PhysicalOperator inputOperator, DBManager dbManager, String tableName, Expression whereExpr) {
         if (!(inputOperator instanceof SeqScanOperator seqScanOperator)) {
             throw new RuntimeException("The delete operator only accepts SeqScanOperator as input");
         }
         this.seqScanOperator = seqScanOperator;
         this.whereExpr = whereExpr;
+        this.dbManager = dbManager;
+        this.tableName = tableName;
         this.deleteCount = 0;
         this.done = false;
     }
@@ -41,6 +46,7 @@ public class DeleteOperator implements PhysicalOperator {
             seqScanOperator.Next();
             TableTuple tuple = (TableTuple) seqScanOperator.Current();
             if (tuple != null && (whereExpr == null || tuple.eval_expr(whereExpr))) {
+                dbManager.deleteIndexEntries(tableName, tuple.getRID(), tuple.getValues());
                 fileHandle.DeleteRecord(tuple.getRID());
                 deleteCount++;
             }

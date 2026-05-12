@@ -14,8 +14,16 @@ import net.sf.jsqlparser.expression.DoubleValue;
 import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.expression.LongValue;
 import net.sf.jsqlparser.expression.StringValue;
+import net.sf.jsqlparser.expression.BinaryExpression;
+import net.sf.jsqlparser.expression.operators.conditional.AndExpression;
+import net.sf.jsqlparser.expression.operators.relational.EqualsTo;
+import net.sf.jsqlparser.expression.operators.relational.GreaterThan;
+import net.sf.jsqlparser.expression.operators.relational.GreaterThanEquals;
+import net.sf.jsqlparser.expression.operators.relational.MinorThan;
+import net.sf.jsqlparser.expression.operators.relational.MinorThanEquals;
 import net.sf.jsqlparser.expression.operators.relational.ExpressionList;
 import net.sf.jsqlparser.expression.operators.relational.ParenthesedExpressionList;
+import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.statement.select.Values;
 
 import java.util.ArrayList;
@@ -42,6 +50,8 @@ public class PhysicalPlanner {
             return handleCount(dbManager, countOperator);
         } else if (logicalOp instanceof LogicalSortOperator sortOperator) {
             return handleSort(dbManager, sortOperator);
+        } else if (logicalOp instanceof LogicalAggregateOperator aggregateOperator) {
+            return handleAggregate(dbManager, aggregateOperator);
         }
 
         else {
@@ -59,17 +69,15 @@ public class PhysicalPlanner {
             return new SeqScanOperator(tableName, dbManager);
         }
 
-        // Check if index exists for the table (for now, assume RBTreeIndex always
-        // exists if index is defined)
-        if (tableMeta.getIndexes() != null && !tableMeta.getIndexes().isEmpty()) {
-            throw new RuntimeException("unimplement");
-        } else {
-            return new SeqScanOperator(tableName, dbManager);
-        }
+        return new SeqScanOperator(tableName, dbManager);
     }
 
     private static PhysicalOperator handleFilter(DBManager dbManager, LogicalFilterOperator logicalFilterOp)
             throws DBException {
+        PhysicalOperator indexedInput = tryBuildIndexScan(dbManager, logicalFilterOp);
+        if (indexedInput != null) {
+            return new FilterOperator(indexedInput, logicalFilterOp.getWhereExpr());
+        }
         PhysicalOperator inputOp = generateOperator(dbManager, logicalFilterOp.getChild());
         return new FilterOperator(inputOp, logicalFilterOp.getWhereExpr());
     }
@@ -220,12 +228,12 @@ public class PhysicalPlanner {
     private static PhysicalOperator handleUpdate(DBManager dbManager, LogicalUpdateOperator logicalUpdateOp) throws DBException {
         // TODO: Implement handleUpdate
         PhysicalOperator scanner = generateOperator(dbManager, logicalUpdateOp.getChild());
-        return new UpdateOperator(scanner, logicalUpdateOp.getTableName(), logicalUpdateOp.getColumns(), logicalUpdateOp.getExpression());
+        return new UpdateOperator(scanner, dbManager, logicalUpdateOp.getTableName(), logicalUpdateOp.getColumns(), logicalUpdateOp.getExpression());
     }
 
     private static PhysicalOperator handleDelete(DBManager dbManager, LogicalDeleteOperator logicalDeleteOp) throws DBException {
         PhysicalOperator scanner = generateOperator(dbManager, logicalDeleteOp.getChild());
-        return new DeleteOperator(scanner, logicalDeleteOp.getWhereExpr());
+        return new DeleteOperator(scanner, dbManager, logicalDeleteOp.getTableName(), logicalDeleteOp.getWhereExpr());
     }
 
     private static PhysicalOperator handleCount(DBManager dbManager, LogicalCountOperator logicalCountOp) throws DBException {
@@ -236,5 +244,104 @@ public class PhysicalPlanner {
     private static PhysicalOperator handleSort(DBManager dbManager, LogicalSortOperator logicalSortOp) throws DBException {
         PhysicalOperator input = generateOperator(dbManager, logicalSortOp.getChild());
         return new SortOperator(input, logicalSortOp.getOrderByElements());
+    }
+
+    private static PhysicalOperator handleAggregate(DBManager dbManager, LogicalAggregateOperator logicalAggregateOp)
+            throws DBException {
+        PhysicalOperator input = generateOperator(dbManager, logicalAggregateOp.getChild());
+        return new AggregateOperator(input, logicalAggregateOp.getSelectItems(), logicalAggregateOp.getGroupByExpressions());
+    }
+
+    private static PhysicalOperator tryBuildIndexScan(DBManager dbManager, LogicalFilterOperator logicalFilterOp)
+            throws DBException {
+        if (!(logicalFilterOp.getChild() instanceof LogicalTableScanOperator tableScanOperator)) {
+            return null;
+        }
+        IndexPredicate predicate = findIndexPredicate(dbManager, tableScanOperator.getTableName(),
+                logicalFilterOp.getWhereExpr());
+        if (predicate == null) {
+            return null;
+        }
+        return new IndexScanOperator(tableScanOperator.getTableName(), dbManager, predicate.indexName,
+                predicate.operator, predicate.value);
+    }
+
+    private static IndexPredicate findIndexPredicate(DBManager dbManager, String tableName, Expression expression)
+            throws DBException {
+        if (expression instanceof AndExpression andExpression) {
+            IndexPredicate left = findIndexPredicate(dbManager, tableName, andExpression.getLeftExpression());
+            return left != null ? left : findIndexPredicate(dbManager, tableName, andExpression.getRightExpression());
+        }
+        if (!(expression instanceof BinaryExpression binaryExpression)) {
+            return null;
+        }
+        String operator = normalizedComparisonOperator(binaryExpression);
+        if (operator == null) {
+            return null;
+        }
+        Expression left = binaryExpression.getLeftExpression();
+        Expression right = binaryExpression.getRightExpression();
+        if (left instanceof Column column) {
+            Value value = parsePredicateValue(right, findColumnMeta(dbManager, tableName, column.getColumnName()));
+            if (value == null) {
+                return null;
+            }
+            return buildIndexPredicate(dbManager, tableName, column, operator, value);
+        }
+        if (right instanceof Column column) {
+            Value value = parsePredicateValue(left, findColumnMeta(dbManager, tableName, column.getColumnName()));
+            if (value == null) {
+                return null;
+            }
+            return buildIndexPredicate(dbManager, tableName, column, flipOperator(operator), value);
+        }
+        return null;
+    }
+
+    private static IndexPredicate buildIndexPredicate(DBManager dbManager, String defaultTableName, Column column,
+                                                      String operator, Value value) throws DBException {
+        String tableName = column.getTableName();
+        if (tableName == null || tableName.isEmpty()) {
+            tableName = defaultTableName;
+        }
+        String indexName = dbManager.findIndexName(tableName, column.getColumnName());
+        if (indexName == null) {
+            return null;
+        }
+        return new IndexPredicate(indexName, operator, value);
+    }
+
+    private static ColumnMeta findColumnMeta(DBManager dbManager, String tableName, String columnName) throws DBException {
+        ColumnMeta columnMeta = dbManager.getMetaManager().getTable(tableName).getColumnMeta(columnName);
+        if (columnMeta == null) {
+            throw new DBException(ExceptionTypes.ColumnDoesNotExist(columnName));
+        }
+        return columnMeta;
+    }
+
+    private static String normalizedComparisonOperator(BinaryExpression expression) {
+        if (expression instanceof EqualsTo) return "=";
+        if (expression instanceof GreaterThan) return ">";
+        if (expression instanceof GreaterThanEquals) return ">=";
+        if (expression instanceof MinorThan) return "<";
+        if (expression instanceof MinorThanEquals) return "<=";
+        return null;
+    }
+
+    private static String flipOperator(String operator) {
+        return switch (operator) {
+            case ">" -> "<";
+            case ">=" -> "<=";
+            case "<" -> ">";
+            case "<=" -> ">=";
+            default -> operator;
+        };
+    }
+
+    private static Value parsePredicateValue(Expression expr, ColumnMeta columnMeta) throws DBException {
+        return parseSingleValue(expr, columnMeta);
+    }
+
+    private record IndexPredicate(String indexName, String operator, Value value) {
     }
 }

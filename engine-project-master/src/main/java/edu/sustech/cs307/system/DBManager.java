@@ -4,11 +4,20 @@ import edu.sustech.cs307.exception.DBException;
 import edu.sustech.cs307.exception.ExceptionTypes;
 import edu.sustech.cs307.meta.ColumnMeta;
 import edu.sustech.cs307.meta.MetaManager;
+import edu.sustech.cs307.meta.TabCol;
 import edu.sustech.cs307.meta.TableMeta;
+import edu.sustech.cs307.record.BitMap;
+import edu.sustech.cs307.record.RID;
+import edu.sustech.cs307.record.Record;
+import edu.sustech.cs307.record.RecordFileHandle;
+import edu.sustech.cs307.record.RecordPageHandle;
 import edu.sustech.cs307.storage.BufferPool;
 import edu.sustech.cs307.storage.DiskManager;
 import edu.sustech.cs307.storage.replacer.ClockReplacer;
 import edu.sustech.cs307.storage.replacer.PageReplacer;
+import edu.sustech.cs307.tuple.TableTuple;
+import edu.sustech.cs307.value.Value;
+import edu.sustech.cs307.value.ValueComparer;
 import org.apache.commons.lang3.StringUtils;
 import org.pmw.tinylog.Logger;
 
@@ -16,6 +25,12 @@ import java.io.File;
 import java.io.IOException;
 import java.time.Clock;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.NavigableMap;
+import java.util.TreeMap;
 import java.util.function.IntFunction;
 
 public class DBManager {
@@ -26,6 +41,8 @@ public class DBManager {
     private final RecordManager recordManager;
     private TransactionManager transactionManager;
     private final IntFunction<PageReplacer> replacerFactory;
+    private final Map<String, NavigableMap<Value, List<RID>>> indexes;
+    private final Comparator<Value> valueComparator;
 
     public DBManager(DiskManager diskManager, BufferPool bufferPool, RecordManager recordManager,
                      MetaManager metaManager) {
@@ -41,6 +58,14 @@ public class DBManager {
         this.metaManager = metaManager;
         this.replacerFactory = replacerFactory;
         this.transactionManager = transactionManager == null ? new TransactionManager(this) : transactionManager;
+        this.valueComparator = (left, right) -> {
+            try {
+                return ValueComparer.compare(left, right);
+            } catch (DBException e) {
+                throw new IllegalArgumentException(e);
+            }
+        };
+        this.indexes = new HashMap<>();
     }
 
     public TransactionManager getTransactionManager() {
@@ -138,14 +163,16 @@ public class DBManager {
             throw new DBException(ExceptionTypes.TableDoesNotExist(table_name));
         }
         String dataFile = String.format("%s/%s", table_name, "data");
-        bufferPool.DeleteAllPages(dataFile);
+        bufferPool.FlushAllPages("");
         recordManager.DeleteFile(dataFile);
         metaManager.dropTable(table_name);
         File tableDir = new File(String.format("%s/%s", diskManager.getCurrentDir(), table_name));
         if (tableDir.exists()) {
             deleteDirectory(tableDir);
         }
-        persistRuntimeState();
+        bufferPool.Reset();
+        DiskManager.dump_disk_manager_meta(this.diskManager);
+        this.metaManager.saveToJson();
         Logger.info("Successfully dropped table: {}", table_name);
     }
 
@@ -180,6 +207,188 @@ public class DBManager {
      */
     public boolean isTableExists(String table) {
         return metaManager.getTableNames().contains(table);
+    }
+
+    public void createIndex(String indexName, String tableName, String columnName) throws DBException {
+        TableMeta tableMeta = metaManager.getTable(tableName);
+        if (!tableMeta.hasColumn(columnName)) {
+            throw new DBException(ExceptionTypes.ColumnDoesNotExist(columnName));
+        }
+        for (String existingTableName : metaManager.getTableNames()) {
+            TableMeta existingTable = metaManager.getTable(existingTableName);
+            Map<String, TableMeta.IndexType> indexes = existingTable.getIndexes();
+            if (indexes != null && indexes.containsKey(indexName)) {
+                throw new DBException(ExceptionTypes.InvalidSQL(
+                        "CREATE INDEX", "Index already exists: " + indexName));
+            }
+        }
+        if (tableMeta.getIndexes() == null) {
+            tableMeta.setIndexes(new HashMap<>());
+        }
+        if (tableMeta.getIndexColumns() == null) {
+            tableMeta.setIndexColumns(new HashMap<>());
+        }
+        tableMeta.getIndexes().put(indexName, TableMeta.IndexType.BTREE);
+        tableMeta.getIndexColumns().put(indexName, columnName);
+        rebuildIndex(tableName, indexName);
+        metaManager.saveToJson();
+        Logger.info("Successfully created index: {} on {}({})", indexName, tableName, columnName);
+    }
+
+    public void dropIndex(String indexName) throws DBException {
+        for (String tableName : metaManager.getTableNames()) {
+            TableMeta tableMeta = metaManager.getTable(tableName);
+            Map<String, TableMeta.IndexType> indexes = tableMeta.getIndexes();
+            if (indexes != null && indexes.remove(indexName) != null) {
+                if (tableMeta.getIndexColumns() != null) {
+                    tableMeta.getIndexColumns().remove(indexName);
+                }
+                this.indexes.remove(indexName);
+                metaManager.saveToJson();
+                Logger.info("Successfully dropped index: {}", indexName);
+                return;
+            }
+        }
+        throw new DBException(ExceptionTypes.InvalidSQL("DROP INDEX", "Index does not exist: " + indexName));
+    }
+
+    public String findIndexName(String tableName, String columnName) throws DBException {
+        TableMeta tableMeta = metaManager.getTable(tableName);
+        if (tableMeta.getIndexColumns() == null) {
+            return null;
+        }
+        for (Map.Entry<String, String> entry : tableMeta.getIndexColumns().entrySet()) {
+            if (entry.getValue().equalsIgnoreCase(columnName)) {
+                return entry.getKey();
+            }
+        }
+        return null;
+    }
+
+    public List<RID> searchIndex(String tableName, String indexName, String operator, Value value) throws DBException {
+        ensureIndexBuilt(tableName, indexName);
+        NavigableMap<Value, List<RID>> index = indexes.get(indexName);
+        if (index == null) {
+            return List.of();
+        }
+        NavigableMap<Value, List<RID>> result;
+        switch (operator) {
+            case "=" -> result = index.subMap(value, true, value, true);
+            case ">" -> result = index.tailMap(value, false);
+            case ">=" -> result = index.tailMap(value, true);
+            case "<" -> result = index.headMap(value, false);
+            case "<=" -> result = index.headMap(value, true);
+            default -> result = new TreeMap<>(valueComparator);
+        }
+        ArrayList<RID> rids = new ArrayList<>();
+        for (List<RID> bucket : result.values()) {
+            for (RID rid : bucket) {
+                rids.add(new RID(rid));
+            }
+        }
+        return rids;
+    }
+
+    public void insertIndexEntries(String tableName, RID rid, Value[] values) throws DBException {
+        TableMeta tableMeta = metaManager.getTable(tableName);
+        if (tableMeta.getIndexColumns() == null || tableMeta.getIndexColumns().isEmpty()) {
+            return;
+        }
+        for (Map.Entry<String, String> entry : tableMeta.getIndexColumns().entrySet()) {
+            ensureIndexBuilt(tableName, entry.getKey());
+            addIndexEntry(entry.getKey(), values[columnIndex(tableMeta, entry.getValue())], rid);
+        }
+    }
+
+    public void deleteIndexEntries(String tableName, RID rid, Value[] values) throws DBException {
+        TableMeta tableMeta = metaManager.getTable(tableName);
+        if (tableMeta.getIndexColumns() == null || tableMeta.getIndexColumns().isEmpty()) {
+            return;
+        }
+        for (Map.Entry<String, String> entry : tableMeta.getIndexColumns().entrySet()) {
+            ensureIndexBuilt(tableName, entry.getKey());
+            removeIndexEntry(entry.getKey(), values[columnIndex(tableMeta, entry.getValue())], rid);
+        }
+    }
+
+    public void updateIndexEntries(String tableName, RID rid, Value[] oldValues, Value[] newValues) throws DBException {
+        TableMeta tableMeta = metaManager.getTable(tableName);
+        if (tableMeta.getIndexColumns() == null || tableMeta.getIndexColumns().isEmpty()) {
+            return;
+        }
+        for (Map.Entry<String, String> entry : tableMeta.getIndexColumns().entrySet()) {
+            ensureIndexBuilt(tableName, entry.getKey());
+            int index = columnIndex(tableMeta, entry.getValue());
+            removeIndexEntry(entry.getKey(), oldValues[index], rid);
+            addIndexEntry(entry.getKey(), newValues[index], rid);
+        }
+    }
+
+    private void ensureIndexBuilt(String tableName, String indexName) throws DBException {
+        if (!indexes.containsKey(indexName)) {
+            rebuildIndex(tableName, indexName);
+        }
+    }
+
+    private void rebuildIndex(String tableName, String indexName) throws DBException {
+        TableMeta tableMeta = metaManager.getTable(tableName);
+        String columnName = tableMeta.getIndexColumns().get(indexName);
+        if (columnName == null) {
+            throw new DBException(ExceptionTypes.InvalidSQL("INDEX", "Missing indexed column: " + indexName));
+        }
+        NavigableMap<Value, List<RID>> index = new TreeMap<>(valueComparator);
+        RecordFileHandle fileHandle = recordManager.OpenFile(tableName);
+        int totalPages = fileHandle.getFileHeader().getNumberOfPages() - 1;
+        int recordsPerPage = fileHandle.getFileHeader().getNumberOfRecordsPrePage();
+        for (int pageNum = 0; pageNum < totalPages; pageNum++) {
+            RecordPageHandle pageHandle = fileHandle.FetchPageHandle(pageNum);
+            try {
+                for (int slotNum = 0; slotNum < recordsPerPage; slotNum++) {
+                    if (BitMap.isSet(pageHandle.bitmap, slotNum)) {
+                        RID rid = new RID(pageNum, slotNum);
+                        Record record = fileHandle.GetRecord(rid);
+                        TableTuple tuple = new TableTuple(tableName, tableMeta, record, rid);
+                        Value value = tuple.getValue(new TabCol(tableName, columnName));
+                        addIndexEntry(index, value, rid);
+                    }
+                }
+            } finally {
+                bufferPool.unpin_page(pageHandle.page.position, false);
+            }
+        }
+        indexes.put(indexName, index);
+    }
+
+    private void addIndexEntry(String indexName, Value value, RID rid) {
+        addIndexEntry(indexes.computeIfAbsent(indexName, ignored -> new TreeMap<>(valueComparator)), value, rid);
+    }
+
+    private void addIndexEntry(NavigableMap<Value, List<RID>> index, Value value, RID rid) {
+        index.computeIfAbsent(value, ignored -> new ArrayList<>()).add(new RID(rid));
+    }
+
+    private void removeIndexEntry(String indexName, Value value, RID rid) {
+        NavigableMap<Value, List<RID>> index = indexes.get(indexName);
+        if (index == null) {
+            return;
+        }
+        List<RID> bucket = index.get(value);
+        if (bucket == null) {
+            return;
+        }
+        bucket.remove(rid);
+        if (bucket.isEmpty()) {
+            index.remove(value);
+        }
+    }
+
+    private int columnIndex(TableMeta tableMeta, String columnName) throws DBException {
+        for (int i = 0; i < tableMeta.columns_list.size(); i++) {
+            if (tableMeta.columns_list.get(i).name.equalsIgnoreCase(columnName)) {
+                return i;
+            }
+        }
+        throw new DBException(ExceptionTypes.ColumnDoesNotExist(columnName));
     }
 
     /**

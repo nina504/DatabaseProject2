@@ -1,5 +1,7 @@
 package edu.sustech.cs307.record;
 
+import java.util.Objects;
+
 public class RID {
     public int pageNum;
     public int slotNum;
@@ -12,5 +14,21 @@ public class RID {
     public RID(RID rid) {
         this.pageNum = rid.pageNum;
         this.slotNum = rid.slotNum;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) {
+            return true;
+        }
+        if (!(obj instanceof RID rid)) {
+            return false;
+        }
+        return pageNum == rid.pageNum && slotNum == rid.slotNum;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(pageNum, slotNum);
     }
 }

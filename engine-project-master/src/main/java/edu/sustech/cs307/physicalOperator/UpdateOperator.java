@@ -5,6 +5,7 @@ import edu.sustech.cs307.exception.ExceptionTypes;
 import edu.sustech.cs307.meta.ColumnMeta;
 import edu.sustech.cs307.meta.TabCol;
 import edu.sustech.cs307.record.RecordFileHandle;
+import edu.sustech.cs307.system.DBManager;
 import edu.sustech.cs307.tuple.TableTuple;
 import edu.sustech.cs307.tuple.TempTuple;
 import edu.sustech.cs307.tuple.Tuple;
@@ -26,16 +27,18 @@ public class UpdateOperator implements PhysicalOperator {
     private final String tableName;
     private final List<UpdateSet> updateSets;
     private final Expression whereExpr;
+    private final DBManager dbManager;
 
     private int updateCount;
     private boolean isDone;
 
-    public UpdateOperator(PhysicalOperator inputOperator, String tableName, List<UpdateSet> updateSets,
+    public UpdateOperator(PhysicalOperator inputOperator, DBManager dbManager, String tableName, List<UpdateSet> updateSets,
                           Expression whereExpr) {
         if (!(inputOperator instanceof SeqScanOperator seqScanOperator)) {
             throw new RuntimeException("The delete operator only accepts SeqScanOperator as input");
         }
         this.seqScanOperator = seqScanOperator;
+        this.dbManager = dbManager;
         this.tableName = tableName;
         this.updateSets = updateSets;
         this.whereExpr = whereExpr;
@@ -88,6 +91,7 @@ public class UpdateOperator implements PhysicalOperator {
                 }
 
                 fileHandle.UpdateRecord(tuple.getRID(), buffer);
+                dbManager.updateIndexEntries(tableName, tuple.getRID(), oldValues, newValues.toArray(new Value[0]));
                 updateCount++;
             }
         }

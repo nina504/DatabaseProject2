@@ -1,10 +1,13 @@
 package edu.sustech.cs307.optimizer;
 
 import java.io.StringReader;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import net.sf.jsqlparser.JSQLParserException;
+import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.parser.CCJSqlParserManager;
 import net.sf.jsqlparser.parser.JSqlParser;
 import net.sf.jsqlparser.statement.Commit;
@@ -41,6 +44,10 @@ public class LogicalPlanner {
             Pattern.compile("(?i)^(?:DESCRIBE|DESC)\\s+([A-Za-z_][A-Za-z0-9_]*)$");
     private static final Pattern DROP_TABLE_PATTERN =
             Pattern.compile("(?i)^DROP\\s+TABLE\\s+([A-Za-z_][A-Za-z0-9_]*)$");
+    private static final Pattern CREATE_INDEX_PATTERN =
+            Pattern.compile("(?i)^CREATE\\s+INDEX\\s+([A-Za-z_][A-Za-z0-9_]*)\\s+ON\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*\\(\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*\\)$");
+    private static final Pattern DROP_INDEX_PATTERN =
+            Pattern.compile("(?i)^DROP\\s+INDEX\\s+([A-Za-z_][A-Za-z0-9_]*)$");
 
     public static LogicalOperator resolveAndPlan(DBManager dbManager, String sql) throws DBException {
         if (sql == null || sql.isBlank()) {
@@ -119,10 +126,15 @@ public class LogicalPlanner {
         if (isCountSelect(plainSelect)) {
             return new LogicalCountOperator(root);
         }
+        if (isAggregateSelect(plainSelect)) {
+            root = new LogicalAggregateOperator(root, plainSelect.getSelectItems(), getGroupByExpressions(plainSelect));
+        }
         if (plainSelect.getOrderByElements() != null && !plainSelect.getOrderByElements().isEmpty()) {
             root = new LogicalSortOperator(root, plainSelect.getOrderByElements());
         }
-        root = new LogicalProjectOperator(root, plainSelect.getSelectItems());
+        if (!(root instanceof LogicalAggregateOperator)) {
+            root = new LogicalProjectOperator(root, plainSelect.getSelectItems());
+        }
         return root;
     }
 
@@ -152,6 +164,32 @@ public class LogicalPlanner {
             return function.getName() != null && function.getName().equalsIgnoreCase("count");
         }
         return false;
+    }
+
+    private static boolean isAggregateSelect(PlainSelect plainSelect) {
+        if (plainSelect.getGroupBy() != null) {
+            return true;
+        }
+        if (plainSelect.getSelectItems() == null) {
+            return false;
+        }
+        for (SelectItem<?> selectItem : plainSelect.getSelectItems()) {
+            if (selectItem.getExpression() instanceof Function function) {
+                String functionName = function.getName();
+                if (functionName != null
+                        && (functionName.equalsIgnoreCase("min") || functionName.equalsIgnoreCase("max"))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static List<Expression> getGroupByExpressions(PlainSelect plainSelect) {
+        if (plainSelect.getGroupBy() == null || plainSelect.getGroupBy().getGroupByExpressionList() == null) {
+            return List.of();
+        }
+        return new ArrayList<>(plainSelect.getGroupBy().getGroupByExpressionList().getExpressions());
     }
     private static String normalizeSql(String sql) {
         String normalizedSql = sql == null ? "" : sql.trim();
@@ -203,6 +241,16 @@ public class LogicalPlanner {
         Matcher dropMatcher = DROP_TABLE_PATTERN.matcher(normalizedSql);
         if (dropMatcher.matches()) {
             dbManager.dropTable(dropMatcher.group(1));
+            return true;
+        }
+        Matcher createIndexMatcher = CREATE_INDEX_PATTERN.matcher(normalizedSql);
+        if (createIndexMatcher.matches()) {
+            dbManager.createIndex(createIndexMatcher.group(1), createIndexMatcher.group(2), createIndexMatcher.group(3));
+            return true;
+        }
+        Matcher dropIndexMatcher = DROP_INDEX_PATTERN.matcher(normalizedSql);
+        if (dropIndexMatcher.matches()) {
+            dbManager.dropIndex(dropIndexMatcher.group(1));
             return true;
         }
         return false;

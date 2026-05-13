@@ -5,6 +5,8 @@ import edu.sustech.cs307.meta.ColumnMeta;
 import edu.sustech.cs307.tuple.Tuple;
 import edu.sustech.cs307.value.Value;
 import edu.sustech.cs307.value.ValueComparer;
+import net.sf.jsqlparser.expression.Expression;
+import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.statement.select.OrderByElement;
 
 import java.util.ArrayList;
@@ -70,8 +72,8 @@ public class SortOperator implements PhysicalOperator {
         return (left, right) -> {
             try {
                 for (OrderByElement orderBy : orderByElements) {
-                    Value leftValue = left.evaluateExpression(orderBy.getExpression());
-                    Value rightValue = right.evaluateExpression(orderBy.getExpression());
+                    Value leftValue = evaluateOrderValue(left, orderBy.getExpression());
+                    Value rightValue = evaluateOrderValue(right, orderBy.getExpression());
                     int comparison = ValueComparer.compare(leftValue, rightValue);
                     if (comparison != 0) {
                         return orderBy.isAsc() ? comparison : -comparison;
@@ -82,5 +84,46 @@ public class SortOperator implements PhysicalOperator {
                 throw new RuntimeException(e);
             }
         };
+    }
+
+    private Value evaluateOrderValue(Tuple tuple, Expression expression) throws DBException {
+        if (expression instanceof Column column) {
+            Value value = valueFromOutputSchema(tuple, column);
+            if (value != null) {
+                return value;
+            }
+        }
+        Value value = valueFromOutputSchema(tuple, expression.toString());
+        if (value != null) {
+            return value;
+        }
+        return tuple.evaluateExpression(expression);
+    }
+
+    private Value valueFromOutputSchema(Tuple tuple, Column column) throws DBException {
+        String tableName = column.getTableName();
+        String columnName = column.getColumnName();
+        Value[] values = tuple.getValues();
+        ArrayList<ColumnMeta> schema = child.outputSchema();
+        for (int i = 0; i < schema.size() && i < values.length; i++) {
+            ColumnMeta columnMeta = schema.get(i);
+            boolean tableMatches = tableName == null || tableName.isEmpty()
+                    || columnMeta.tableName.equalsIgnoreCase(tableName);
+            if (tableMatches && columnMeta.name.equalsIgnoreCase(columnName)) {
+                return values[i];
+            }
+        }
+        return null;
+    }
+
+    private Value valueFromOutputSchema(Tuple tuple, String expressionName) throws DBException {
+        Value[] values = tuple.getValues();
+        ArrayList<ColumnMeta> schema = child.outputSchema();
+        for (int i = 0; i < schema.size() && i < values.length; i++) {
+            if (schema.get(i).name.equalsIgnoreCase(expressionName)) {
+                return values[i];
+            }
+        }
+        return null;
     }
 }

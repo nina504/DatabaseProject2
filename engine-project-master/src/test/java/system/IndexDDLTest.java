@@ -90,6 +90,36 @@ class IndexDDLTest {
                 .isEqualTo(2L);
     }
 
+    @Test
+    void bPlusTreeIndexSupportsLargeDatasetMultipleIndexesAndNodePrinting() throws Exception {
+        DBManager dbManager = buildDbManager();
+        executeStatement(dbManager, "CREATE TABLE users (id int, age int)");
+        for (int i = 1; i <= 40; i++) {
+            executeStatement(dbManager,
+                    "INSERT INTO users(id, age) VALUES (" + i + ", " + (18 + (i % 7)) + ")");
+        }
+
+        executeStatement(dbManager, "CREATE INDEX idx_id ON users(id)");
+        executeStatement(dbManager, "CREATE INDEX idx_age ON users(age)");
+
+        assertThat(selectValues(dbManager, "SELECT * FROM users WHERE id >= 35"))
+                .hasSize(6);
+        assertThat(selectValues(dbManager, "SELECT * FROM users WHERE age = 20"))
+                .hasSize(6);
+
+        executeStatement(dbManager, "DELETE FROM users WHERE id = 35");
+        assertThat(selectValues(dbManager, "SELECT * FROM users WHERE id = 35"))
+                .isEmpty();
+
+        executeStatement(dbManager, "INSERT INTO users(id, age) VALUES (41, 20)");
+        assertThat(selectValues(dbManager, "SELECT * FROM users WHERE age = 20"))
+                .hasSize(7);
+
+        String tree = dbManager.printIndex("idx_id");
+        assertThat(tree).contains("InternalNode").contains("LeafNode");
+        executeStatement(dbManager, "PRINT INDEX idx_age");
+    }
+
     private DBManager buildDbManager() throws DBException {
         DiskManager diskManager = new DiskManager(tempDir.toString(), new HashMap<>());
         BufferPool bufferPool = new BufferPool(16, diskManager);

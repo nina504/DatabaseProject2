@@ -19,6 +19,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 
 public class AggregateOperator implements PhysicalOperator {
     private final PhysicalOperator child;
@@ -51,7 +52,7 @@ public class AggregateOperator implements PhysicalOperator {
         currentTuple = null;
         resultTuples.clear();
 
-        Map<String, AggregateState> groups = new LinkedHashMap<>();
+        Map<GroupKey, AggregateState> groups = new LinkedHashMap<>();
         while (child.hasNext()) {
             child.Next();
             Tuple tuple = child.Current();
@@ -59,14 +60,14 @@ public class AggregateOperator implements PhysicalOperator {
                 continue;
             }
             List<Value> groupValues = evaluateGroupValues(tuple);
-            String groupKey = buildGroupKey(groupValues);
+            GroupKey groupKey = new GroupKey(groupValues);
             AggregateState state = groups.computeIfAbsent(groupKey, ignored -> new AggregateState(groupValues));
             accumulate(state, tuple);
         }
 
         if (groups.isEmpty() && groupByExpressions.isEmpty()) {
             AggregateState state = new AggregateState(List.of());
-            groups.put("", state);
+            groups.put(new GroupKey(List.of()), state);
         }
 
         for (AggregateState state : groups.values()) {
@@ -171,14 +172,6 @@ public class AggregateOperator implements PhysicalOperator {
         return values;
     }
 
-    private String buildGroupKey(List<Value> values) {
-        StringBuilder key = new StringBuilder();
-        for (Value value : values) {
-            key.append(value.type).append(':').append(value.value).append('|');
-        }
-        return key.toString();
-    }
-
     private Expression getSingleFunctionArgument(Function function) throws DBException {
         if (function.getParameters() == null || function.getParameters().size() != 1) {
             throw new DBException(ExceptionTypes.NotSupportedOperation(function));
@@ -197,6 +190,41 @@ public class AggregateOperator implements PhysicalOperator {
             }
         }
         throw new DBException(ExceptionTypes.ColumnDoesNotExist(columnName));
+    }
+
+    private static class GroupKey {
+        private final List<Value> values;
+
+        private GroupKey(List<Value> values) {
+            this.values = List.copyOf(values);
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            if (this == object) {
+                return true;
+            }
+            if (!(object instanceof GroupKey other) || values.size() != other.values.size()) {
+                return false;
+            }
+            for (int i = 0; i < values.size(); i++) {
+                Value left = values.get(i);
+                Value right = other.values.get(i);
+                if (left.type != right.type || !Objects.equals(left.value, right.value)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        @Override
+        public int hashCode() {
+            int result = 1;
+            for (Value value : values) {
+                result = 31 * result + Objects.hash(value.type, value.value);
+            }
+            return result;
+        }
     }
 
     private static class AggregateState {

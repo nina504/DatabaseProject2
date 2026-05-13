@@ -2,6 +2,7 @@ package edu.sustech.cs307.system;
 
 import edu.sustech.cs307.exception.DBException;
 import edu.sustech.cs307.exception.ExceptionTypes;
+import edu.sustech.cs307.index.InMemoryBPlusTreeIndex;
 import edu.sustech.cs307.meta.ColumnMeta;
 import edu.sustech.cs307.meta.MetaManager;
 import edu.sustech.cs307.meta.TabCol;
@@ -17,7 +18,6 @@ import edu.sustech.cs307.storage.replacer.ClockReplacer;
 import edu.sustech.cs307.storage.replacer.PageReplacer;
 import edu.sustech.cs307.tuple.TableTuple;
 import edu.sustech.cs307.value.Value;
-import edu.sustech.cs307.value.ValueComparer;
 import org.apache.commons.lang3.StringUtils;
 import org.pmw.tinylog.Logger;
 
@@ -29,12 +29,9 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Clock;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.NavigableMap;
-import java.util.TreeMap;
 import java.util.function.IntFunction;
 
 import edu.sustech.cs307.value.ValueType;
@@ -49,8 +46,7 @@ public class DBManager {
     private final RecordManager recordManager;
     private TransactionManager transactionManager;
     private final IntFunction<PageReplacer> replacerFactory;
-    private final Map<String, NavigableMap<Value, List<RID>>> indexes;
-    private final Comparator<Value> valueComparator;
+    private final Map<String, InMemoryBPlusTreeIndex> indexes;
 
     public DBManager(DiskManager diskManager, BufferPool bufferPool, RecordManager recordManager,
                      MetaManager metaManager) {
@@ -66,13 +62,6 @@ public class DBManager {
         this.metaManager = metaManager;
         this.replacerFactory = replacerFactory;
         this.transactionManager = transactionManager == null ? new TransactionManager(this) : transactionManager;
-        this.valueComparator = (left, right) -> {
-            try {
-                return ValueComparer.compare(left, right);
-            } catch (DBException e) {
-                throw new IllegalArgumentException(e);
-            }
-        };
         this.indexes = new HashMap<>();
     }
 
@@ -352,26 +341,25 @@ public class DBManager {
 
     public List<RID> searchIndex(String tableName, String indexName, String operator, Value value) throws DBException {
         ensureIndexBuilt(tableName, indexName);
-        NavigableMap<Value, List<RID>> index = indexes.get(indexName);
+        InMemoryBPlusTreeIndex index = indexes.get(indexName);
         if (index == null) {
             return List.of();
         }
-        NavigableMap<Value, List<RID>> result;
-        switch (operator) {
-            case "=" -> result = index.subMap(value, true, value, true);
-            case ">" -> result = index.tailMap(value, false);
-            case ">=" -> result = index.tailMap(value, true);
-            case "<" -> result = index.headMap(value, false);
-            case "<=" -> result = index.headMap(value, true);
-            default -> result = new TreeMap<>(valueComparator);
-        }
-        ArrayList<RID> rids = new ArrayList<>();
-        for (List<RID> bucket : result.values()) {
-            for (RID rid : bucket) {
-                rids.add(new RID(rid));
+        return index.search(operator, value);
+    }
+
+    public String printIndex(String indexName) throws DBException {
+        for (String tableName : metaManager.getTableNames()) {
+            TableMeta tableMeta = metaManager.getTable(tableName);
+            if (tableMeta.getIndexes() != null && tableMeta.getIndexes().containsKey(indexName)) {
+                ensureIndexBuilt(tableName, indexName);
+                String output = indexes.get(indexName).printNodes();
+                Logger.info("B+Tree index {} on {}({}):\n{}", indexName, tableName,
+                        tableMeta.getIndexColumns().get(indexName), output);
+                return output;
             }
         }
-        return rids;
+        throw new DBException(ExceptionTypes.InvalidSQL("PRINT INDEX", "Index does not exist: " + indexName));
     }
 
     public void insertIndexEntries(String tableName, RID rid, Value[] values) throws DBException {
@@ -421,7 +409,7 @@ public class DBManager {
         if (columnName == null) {
             throw new DBException(ExceptionTypes.InvalidSQL("INDEX", "Missing indexed column: " + indexName));
         }
-        NavigableMap<Value, List<RID>> index = new TreeMap<>(valueComparator);
+        InMemoryBPlusTreeIndex index = new InMemoryBPlusTreeIndex();
         RecordFileHandle fileHandle = recordManager.OpenFile(tableName);
         int totalPages = fileHandle.getFileHeader().getNumberOfPages() - 1;
         int recordsPerPage = fileHandle.getFileHeader().getNumberOfRecordsPrePage();
@@ -434,7 +422,7 @@ public class DBManager {
                         Record record = fileHandle.GetRecord(rid);
                         TableTuple tuple = new TableTuple(tableName, tableMeta, record, rid);
                         Value value = tuple.getValue(new TabCol(tableName, columnName));
-                        addIndexEntry(index, value, rid);
+                        index.insert(value, rid);
                     }
                 }
             } finally {
@@ -444,27 +432,16 @@ public class DBManager {
         indexes.put(indexName, index);
     }
 
-    private void addIndexEntry(String indexName, Value value, RID rid) {
-        addIndexEntry(indexes.computeIfAbsent(indexName, ignored -> new TreeMap<>(valueComparator)), value, rid);
+    private void addIndexEntry(String indexName, Value value, RID rid) throws DBException {
+        indexes.computeIfAbsent(indexName, ignored -> new InMemoryBPlusTreeIndex()).insert(value, rid);
     }
 
-    private void addIndexEntry(NavigableMap<Value, List<RID>> index, Value value, RID rid) {
-        index.computeIfAbsent(value, ignored -> new ArrayList<>()).add(new RID(rid));
-    }
-
-    private void removeIndexEntry(String indexName, Value value, RID rid) {
-        NavigableMap<Value, List<RID>> index = indexes.get(indexName);
+    private void removeIndexEntry(String indexName, Value value, RID rid) throws DBException {
+        InMemoryBPlusTreeIndex index = indexes.get(indexName);
         if (index == null) {
             return;
         }
-        List<RID> bucket = index.get(value);
-        if (bucket == null) {
-            return;
-        }
-        bucket.remove(rid);
-        if (bucket.isEmpty()) {
-            index.remove(value);
-        }
+        index.delete(value, rid);
     }
 
     private int columnIndex(TableMeta tableMeta, String columnName) throws DBException {

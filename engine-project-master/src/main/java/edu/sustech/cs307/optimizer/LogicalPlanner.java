@@ -48,6 +48,8 @@ public class LogicalPlanner {
             Pattern.compile("(?i)^CREATE\\s+INDEX\\s+([A-Za-z_][A-Za-z0-9_]*)\\s+ON\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*\\(\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*\\)$");
     private static final Pattern DROP_INDEX_PATTERN =
             Pattern.compile("(?i)^DROP\\s+INDEX\\s+([A-Za-z_][A-Za-z0-9_]*)$");
+    private static final Pattern PRINT_INDEX_PATTERN =
+            Pattern.compile("(?i)^(?:PRINT|SHOW)\\s+INDEX\\s+([A-Za-z_][A-Za-z0-9_]*)$");
     private static final Pattern ALTER_ADD_COLUMN_PATTERN =
             Pattern.compile("(?i)^ALTER\\s+TABLE\\s+([A-Za-z_][A-Za-z0-9_]*)\\s+ADD(?:\\s+COLUMN)?\\s+([A-Za-z_][A-Za-z0-9_]*)\\s+(INT|INTEGER|VARCHAR|CHAR|DOUBLE|FLOAT)$");
     private static final Pattern ALTER_DROP_COLUMN_PATTERN =
@@ -130,13 +132,14 @@ public class LogicalPlanner {
         if (isCountSelect(plainSelect)) {
             return new LogicalCountOperator(root);
         }
-        if (isAggregateSelect(plainSelect)) {
+        boolean aggregateSelect = isAggregateSelect(plainSelect);
+        if (aggregateSelect) {
             root = new LogicalAggregateOperator(root, plainSelect.getSelectItems(), getGroupByExpressions(plainSelect));
         }
         if (plainSelect.getOrderByElements() != null && !plainSelect.getOrderByElements().isEmpty()) {
             root = new LogicalSortOperator(root, plainSelect.getOrderByElements());
         }
-        if (!(root instanceof LogicalAggregateOperator)) {
+        if (!aggregateSelect) {
             root = new LogicalProjectOperator(root, plainSelect.getSelectItems());
         }
         return root;
@@ -255,6 +258,11 @@ public class LogicalPlanner {
         Matcher dropIndexMatcher = DROP_INDEX_PATTERN.matcher(normalizedSql);
         if (dropIndexMatcher.matches()) {
             dbManager.dropIndex(dropIndexMatcher.group(1));
+            return true;
+        }
+        Matcher printIndexMatcher = PRINT_INDEX_PATTERN.matcher(normalizedSql);
+        if (printIndexMatcher.matches()) {
+            dbManager.printIndex(printIndexMatcher.group(1));
             return true;
         }
         Matcher alterAddColumnMatcher = ALTER_ADD_COLUMN_PATTERN.matcher(normalizedSql);

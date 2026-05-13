@@ -80,7 +80,8 @@ public class DBEntry {
                     }
                 } catch (Exception e) {
                     Logger.error(e.getMessage());
-                    Logger.error("An error occurred. Exiting....");
+                    Logger.error("Failed to read command. Please try again.");
+                    continue;
                 }
                 try {
                     LogicalOperator operator = LogicalPlanner.resolveAndPlan(dbManager, sql);
@@ -107,6 +108,10 @@ public class DBEntry {
                 } catch (DBException e) {
                     Logger.error(e.getMessage());
                     Logger.error("An error occurred. Please try again.");
+                    Logger.error(Arrays.toString(e.getStackTrace()));
+                } catch (Exception e) {
+                    Logger.error(e.getMessage());
+                    Logger.error("Unexpected error while executing SQL. Please try again.");
                     Logger.error(Arrays.toString(e.getStackTrace()));
                 }
             }

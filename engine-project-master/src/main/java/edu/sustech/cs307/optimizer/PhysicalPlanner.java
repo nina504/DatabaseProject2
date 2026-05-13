@@ -9,6 +9,7 @@ import edu.sustech.cs307.value.Value;
 import edu.sustech.cs307.value.ValueType;
 import edu.sustech.cs307.meta.ColumnMeta;
 import edu.sustech.cs307.meta.TableMeta;
+import edu.sustech.cs307.tuple.Tuple;
 
 import net.sf.jsqlparser.expression.DoubleValue;
 import net.sf.jsqlparser.expression.Expression;
@@ -32,14 +33,19 @@ import java.util.List;
 
 public class PhysicalPlanner {
     public static PhysicalOperator generateOperator(DBManager dbManager, LogicalOperator logicalOp) throws DBException {
+        return generateOperator(dbManager, logicalOp, null);
+    }
+
+    public static PhysicalOperator generateOperator(DBManager dbManager, LogicalOperator logicalOp, Tuple outerTuple)
+            throws DBException {
         if (logicalOp instanceof LogicalTableScanOperator tableScanOperator) {
             return handleTableScan(dbManager, tableScanOperator);
         } else if (logicalOp instanceof LogicalFilterOperator filterOperator) {
-            return handleFilter(dbManager, filterOperator);
+            return handleFilter(dbManager, filterOperator, outerTuple);
         } else if (logicalOp instanceof LogicalJoinOperator joinOperator) {
-            return handleJoin(dbManager, joinOperator);
+            return handleJoin(dbManager, joinOperator, outerTuple);
         } else if (logicalOp instanceof LogicalProjectOperator projectOperator) {
-            return handleProject(dbManager, projectOperator);
+            return handleProject(dbManager, projectOperator, outerTuple);
         } else if (logicalOp instanceof LogicalInsertOperator insertOperator) {
             return handleInsert(dbManager, insertOperator);
         } else if (logicalOp instanceof LogicalUpdateOperator updateOperator) {
@@ -47,11 +53,11 @@ public class PhysicalPlanner {
         } else if (logicalOp instanceof LogicalDeleteOperator deleteOperator) {
             return handleDelete(dbManager, deleteOperator);
         } else if (logicalOp instanceof LogicalCountOperator countOperator) {
-            return handleCount(dbManager, countOperator);
+            return handleCount(dbManager, countOperator, outerTuple);
         } else if (logicalOp instanceof LogicalSortOperator sortOperator) {
-            return handleSort(dbManager, sortOperator);
+            return handleSort(dbManager, sortOperator, outerTuple);
         } else if (logicalOp instanceof LogicalAggregateOperator aggregateOperator) {
-            return handleAggregate(dbManager, aggregateOperator);
+            return handleAggregate(dbManager, aggregateOperator, outerTuple);
         }
 
         else {
@@ -72,26 +78,28 @@ public class PhysicalPlanner {
         return new SeqScanOperator(tableName, dbManager);
     }
 
-    private static PhysicalOperator handleFilter(DBManager dbManager, LogicalFilterOperator logicalFilterOp)
+    private static PhysicalOperator handleFilter(DBManager dbManager, LogicalFilterOperator logicalFilterOp,
+                                                 Tuple outerTuple)
             throws DBException {
         PhysicalOperator indexedInput = tryBuildIndexScan(dbManager, logicalFilterOp);
         if (indexedInput != null) {
-            return new FilterOperator(indexedInput, logicalFilterOp.getWhereExpr());
+            return new FilterOperator(indexedInput, logicalFilterOp.getWhereExpr(), dbManager, outerTuple);
         }
-        PhysicalOperator inputOp = generateOperator(dbManager, logicalFilterOp.getChild());
-        return new FilterOperator(inputOp, logicalFilterOp.getWhereExpr());
+        PhysicalOperator inputOp = generateOperator(dbManager, logicalFilterOp.getChild(), outerTuple);
+        return new FilterOperator(inputOp, logicalFilterOp.getWhereExpr(), dbManager, outerTuple);
     }
 
-    private static PhysicalOperator handleJoin(DBManager dbManager, LogicalJoinOperator logicalJoinOp)
+    private static PhysicalOperator handleJoin(DBManager dbManager, LogicalJoinOperator logicalJoinOp, Tuple outerTuple)
             throws DBException {
-        PhysicalOperator leftOp = generateOperator(dbManager, logicalJoinOp.getLeftInput());
-        PhysicalOperator rightOp = generateOperator(dbManager, logicalJoinOp.getRightInput());
+        PhysicalOperator leftOp = generateOperator(dbManager, logicalJoinOp.getLeftInput(), outerTuple);
+        PhysicalOperator rightOp = generateOperator(dbManager, logicalJoinOp.getRightInput(), outerTuple);
         return new NestedLoopJoinOperator(leftOp, rightOp, logicalJoinOp.getJoinExprs());
     }
 
-    private static PhysicalOperator handleProject(DBManager dbManager, LogicalProjectOperator logicalProjectOp)
+    private static PhysicalOperator handleProject(DBManager dbManager, LogicalProjectOperator logicalProjectOp,
+                                                  Tuple outerTuple)
             throws DBException {
-        PhysicalOperator inputOp = generateOperator(dbManager, logicalProjectOp.getChild());
+        PhysicalOperator inputOp = generateOperator(dbManager, logicalProjectOp.getChild(), outerTuple);
         return new ProjectOperator(inputOp, logicalProjectOp.getOutputSchema());
     }
 
@@ -236,19 +244,22 @@ public class PhysicalPlanner {
         return new DeleteOperator(scanner, dbManager, logicalDeleteOp.getTableName(), logicalDeleteOp.getWhereExpr());
     }
 
-    private static PhysicalOperator handleCount(DBManager dbManager, LogicalCountOperator logicalCountOp) throws DBException {
-        PhysicalOperator input = generateOperator(dbManager, logicalCountOp.getChild());
+    private static PhysicalOperator handleCount(DBManager dbManager, LogicalCountOperator logicalCountOp,
+                                                Tuple outerTuple) throws DBException {
+        PhysicalOperator input = generateOperator(dbManager, logicalCountOp.getChild(), outerTuple);
         return new CountOperator(input);
     }
 
-    private static PhysicalOperator handleSort(DBManager dbManager, LogicalSortOperator logicalSortOp) throws DBException {
-        PhysicalOperator input = generateOperator(dbManager, logicalSortOp.getChild());
+    private static PhysicalOperator handleSort(DBManager dbManager, LogicalSortOperator logicalSortOp,
+                                               Tuple outerTuple) throws DBException {
+        PhysicalOperator input = generateOperator(dbManager, logicalSortOp.getChild(), outerTuple);
         return new SortOperator(input, logicalSortOp.getOrderByElements());
     }
 
-    private static PhysicalOperator handleAggregate(DBManager dbManager, LogicalAggregateOperator logicalAggregateOp)
+    private static PhysicalOperator handleAggregate(DBManager dbManager, LogicalAggregateOperator logicalAggregateOp,
+                                                    Tuple outerTuple)
             throws DBException {
-        PhysicalOperator input = generateOperator(dbManager, logicalAggregateOp.getChild());
+        PhysicalOperator input = generateOperator(dbManager, logicalAggregateOp.getChild(), outerTuple);
         return new AggregateOperator(input, logicalAggregateOp.getSelectItems(), logicalAggregateOp.getGroupByExpressions());
     }
 
@@ -339,7 +350,10 @@ public class PhysicalPlanner {
     }
 
     private static Value parsePredicateValue(Expression expr, ColumnMeta columnMeta) throws DBException {
-        return parseSingleValue(expr, columnMeta);
+        if (expr instanceof StringValue || expr instanceof DoubleValue || expr instanceof LongValue) {
+            return parseSingleValue(expr, columnMeta);
+        }
+        return null;
     }
 
     private record IndexPredicate(String indexName, String operator, Value value) {

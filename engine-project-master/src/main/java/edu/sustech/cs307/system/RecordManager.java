@@ -69,6 +69,10 @@ public class RecordManager {
      */
     public RecordFileHandle OpenFile(String table_name) throws DBException {
         String data_file = String.format("%s/%s", table_name, "data");
+        return OpenDataFile(data_file);
+    }
+
+    public RecordFileHandle OpenDataFile(String data_file) throws DBException {
         Page page = bufferPool.FetchPage(new PagePosition(data_file, 0));
         RecordFileHeader recordFileHeader = new RecordFileHeader(page.data);
         return new RecordFileHandle(diskManager, bufferPool, data_file, recordFileHeader);

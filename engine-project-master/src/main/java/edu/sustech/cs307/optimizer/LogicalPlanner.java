@@ -48,6 +48,10 @@ public class LogicalPlanner {
             Pattern.compile("(?i)^CREATE\\s+INDEX\\s+([A-Za-z_][A-Za-z0-9_]*)\\s+ON\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*\\(\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*\\)$");
     private static final Pattern DROP_INDEX_PATTERN =
             Pattern.compile("(?i)^DROP\\s+INDEX\\s+([A-Za-z_][A-Za-z0-9_]*)$");
+    private static final Pattern ALTER_ADD_COLUMN_PATTERN =
+            Pattern.compile("(?i)^ALTER\\s+TABLE\\s+([A-Za-z_][A-Za-z0-9_]*)\\s+ADD(?:\\s+COLUMN)?\\s+([A-Za-z_][A-Za-z0-9_]*)\\s+(INT|INTEGER|VARCHAR|CHAR|DOUBLE|FLOAT)$");
+    private static final Pattern ALTER_DROP_COLUMN_PATTERN =
+            Pattern.compile("(?i)^ALTER\\s+TABLE\\s+([A-Za-z_][A-Za-z0-9_]*)\\s+DROP(?:\\s+COLUMN)?\\s+([A-Za-z_][A-Za-z0-9_]*)$");
 
     public static LogicalOperator resolveAndPlan(DBManager dbManager, String sql) throws DBException {
         if (sql == null || sql.isBlank()) {
@@ -251,6 +255,17 @@ public class LogicalPlanner {
         Matcher dropIndexMatcher = DROP_INDEX_PATTERN.matcher(normalizedSql);
         if (dropIndexMatcher.matches()) {
             dbManager.dropIndex(dropIndexMatcher.group(1));
+            return true;
+        }
+        Matcher alterAddColumnMatcher = ALTER_ADD_COLUMN_PATTERN.matcher(normalizedSql);
+        if (alterAddColumnMatcher.matches()) {
+            dbManager.addColumn(alterAddColumnMatcher.group(1), alterAddColumnMatcher.group(2),
+                    alterAddColumnMatcher.group(3));
+            return true;
+        }
+        Matcher alterDropColumnMatcher = ALTER_DROP_COLUMN_PATTERN.matcher(normalizedSql);
+        if (alterDropColumnMatcher.matches()) {
+            dbManager.dropColumn(alterDropColumnMatcher.group(1), alterDropColumnMatcher.group(2));
             return true;
         }
         return false;

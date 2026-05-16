@@ -1,6 +1,7 @@
 package edu.sustech.cs307.physicalOperator;
 
 import edu.sustech.cs307.exception.DBException;
+import edu.sustech.cs307.exception.ExceptionTypes;
 import edu.sustech.cs307.meta.ColumnMeta;
 import edu.sustech.cs307.record.RecordFileHandle;
 import edu.sustech.cs307.system.DBManager;
@@ -21,9 +22,10 @@ public class DeleteOperator implements PhysicalOperator {
     private int deleteCount;
     private boolean done;
 
-    public DeleteOperator(PhysicalOperator inputOperator, DBManager dbManager, String tableName, Expression whereExpr) {
+    public DeleteOperator(PhysicalOperator inputOperator, DBManager dbManager, String tableName, Expression whereExpr)
+            throws DBException {
         if (!(inputOperator instanceof SeqScanOperator seqScanOperator)) {
-            throw new RuntimeException("The delete operator only accepts SeqScanOperator as input");
+            throw new DBException(ExceptionTypes.UnsupportedOperator(inputOperator.getClass().getSimpleName()));
         }
         this.seqScanOperator = seqScanOperator;
         this.whereExpr = whereExpr;

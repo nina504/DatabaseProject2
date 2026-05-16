@@ -1,6 +1,7 @@
 package edu.sustech.cs307.physicalOperator;
 
 import edu.sustech.cs307.exception.DBException;
+import edu.sustech.cs307.exception.ExceptionTypes;
 import edu.sustech.cs307.meta.ColumnMeta;
 import edu.sustech.cs307.record.RID;
 import edu.sustech.cs307.system.DBManager;
@@ -55,9 +56,11 @@ public class InsertOperator implements PhysicalOperator {
                 }
             }
             this.rowCount = values.size() / columnSize;
+        } catch (DBException e) {
+            throw e;
         } catch (Exception e) {
-            throw new RuntimeException(
-                    "Failed to insert record: " + e.getMessage() + "\n");
+            throw new DBException(ExceptionTypes.InvalidSQL("INSERT",
+                    "Failed to insert record: " + e.getMessage()));
         }
     }
 

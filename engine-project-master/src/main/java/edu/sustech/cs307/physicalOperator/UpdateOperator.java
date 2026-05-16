@@ -33,9 +33,9 @@ public class UpdateOperator implements PhysicalOperator {
     private boolean isDone;
 
     public UpdateOperator(PhysicalOperator inputOperator, DBManager dbManager, String tableName, List<UpdateSet> updateSets,
-                          Expression whereExpr) {
+                          Expression whereExpr) throws DBException {
         if (!(inputOperator instanceof SeqScanOperator seqScanOperator)) {
-            throw new RuntimeException("The delete operator only accepts SeqScanOperator as input");
+            throw new DBException(ExceptionTypes.UnsupportedOperator(inputOperator.getClass().getSimpleName()));
         }
         this.seqScanOperator = seqScanOperator;
         this.dbManager = dbManager;
@@ -108,9 +108,10 @@ public class UpdateOperator implements PhysicalOperator {
             ArrayList<Value> result = new ArrayList<>();
             result.add(new Value(updateCount, ValueType.INTEGER));
             return new TempTuple(result);
-        } else {
-            throw new RuntimeException("Call Next() first");
         }
+        ArrayList<Value> result = new ArrayList<>();
+        result.add(new Value(updateCount, ValueType.INTEGER));
+        return new TempTuple(result);
     }
 
     @Override

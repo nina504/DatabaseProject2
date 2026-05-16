@@ -129,7 +129,7 @@ public class LogicalPlanner {
         if (plainSelect.getWhere() != null) {
             root = new LogicalFilterOperator(root, plainSelect.getWhere());
         }
-        if (isCountSelect(plainSelect)) {
+        if (isCountSelect(plainSelect) && plainSelect.getGroupBy() == null) {
             return new LogicalCountOperator(root);
         }
         boolean aggregateSelect = isAggregateSelect(plainSelect);
@@ -184,7 +184,11 @@ public class LogicalPlanner {
             if (selectItem.getExpression() instanceof Function function) {
                 String functionName = function.getName();
                 if (functionName != null
-                        && (functionName.equalsIgnoreCase("min") || functionName.equalsIgnoreCase("max"))) {
+                        && (functionName.equalsIgnoreCase("min")
+                        || functionName.equalsIgnoreCase("max")
+                        || functionName.equalsIgnoreCase("sum")
+                        || functionName.equalsIgnoreCase("avg")
+                        || functionName.equalsIgnoreCase("count"))) {
                     return true;
                 }
             }

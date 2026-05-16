@@ -123,6 +123,43 @@ class AggregateOperatorTest {
                 .containsExactly("dave", "carol", "bob", "alice");
     }
 
+    @Test
+    void sumAvgCountAndExpressionsWorkInAggregatesAndProjection() throws DBException {
+        DBManager dbManager = buildDbManager();
+        executeStatement(dbManager, "CREATE TABLE scores (id int, age int, gpa double, name varchar)");
+        executeStatement(dbManager,
+                "INSERT INTO scores(id, age, gpa, name) VALUES "
+                        + "(1, 18, 3.5, 'alice'), "
+                        + "(2, 18, 4.0, 'bob'), "
+                        + "(3, 20, 3.0, 'carol')");
+
+        List<Value[]> aggregate = selectValues(dbManager,
+                "SELECT sum(age), avg(gpa), max(age + id), min(gpa + 1.0) FROM scores");
+        assertThat(aggregate.get(0)[0].value).isEqualTo(56L);
+        assertThat(aggregate.get(0)[1].value).isEqualTo((3.5 + 4.0 + 3.0) / 3);
+        assertThat(aggregate.get(0)[2].value).isEqualTo(23L);
+        assertThat(aggregate.get(0)[3].value).isEqualTo(4.0);
+
+        List<Value[]> grouped = selectValues(dbManager,
+                "SELECT age, count(*), sum(id), avg(gpa) FROM scores GROUP BY age ORDER BY age DESC");
+        assertThat(grouped).hasSize(2);
+        assertThat(grouped.get(0)[0].value).isEqualTo(20L);
+        assertThat(grouped.get(0)[1].value).isEqualTo(1L);
+        assertThat(grouped.get(0)[2].value).isEqualTo(3L);
+        assertThat(grouped.get(0)[3].value).isEqualTo(3.0);
+        assertThat(grouped.get(1)[0].value).isEqualTo(18L);
+        assertThat(grouped.get(1)[1].value).isEqualTo(2L);
+        assertThat(grouped.get(1)[2].value).isEqualTo(3L);
+        assertThat(grouped.get(1)[3].value).isEqualTo(3.75);
+
+        List<Value[]> projected = selectValues(dbManager,
+                "SELECT id + age, gpa * 2 FROM scores ORDER BY id + age DESC");
+        assertThat(projected).extracting(row -> row[0].value)
+                .containsExactly(23L, 20L, 19L);
+        assertThat(projected).extracting(row -> row[1].value)
+                .containsExactly(6.0, 8.0, 7.0);
+    }
+
     private DBManager buildDbManager() throws DBException {
         DiskManager diskManager = new DiskManager(tempDir.toString(), new HashMap<>());
         BufferPool bufferPool = new BufferPool(16, diskManager);

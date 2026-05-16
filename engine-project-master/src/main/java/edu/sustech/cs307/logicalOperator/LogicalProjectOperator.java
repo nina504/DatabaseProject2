@@ -27,6 +27,10 @@ public class LogicalProjectOperator extends LogicalOperator {
         return child;
     }
 
+    public List<SelectItem<?>> getSelectItems() {
+        return selectItems;
+    }
+
     public List<TabCol> getOutputSchema() throws DBException {
         List<TabCol> outputSchema = new ArrayList<>();
         for (SelectItem<?> selectItem : selectItems) {

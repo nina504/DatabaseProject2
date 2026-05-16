@@ -12,6 +12,10 @@ import edu.sustech.cs307.value.Value;
 import edu.sustech.cs307.value.ValueComparer;
 import edu.sustech.cs307.value.ValueType;
 import net.sf.jsqlparser.expression.*;
+import net.sf.jsqlparser.expression.operators.arithmetic.Addition;
+import net.sf.jsqlparser.expression.operators.arithmetic.Division;
+import net.sf.jsqlparser.expression.operators.arithmetic.Multiplication;
+import net.sf.jsqlparser.expression.operators.arithmetic.Subtraction;
 import net.sf.jsqlparser.expression.operators.conditional.AndExpression;
 import net.sf.jsqlparser.expression.operators.conditional.OrExpression;
 import net.sf.jsqlparser.expression.operators.relational.EqualsTo;
@@ -156,9 +160,53 @@ public abstract class Tuple {
             return new Value(((LongValue) expr).getValue(), ValueType.INTEGER);
         } else if (expr instanceof Column) {
             return resolveColumnValue(tuple, (Column) expr, context.outerTuple);
+        } else if (expr instanceof Parenthesis parenthesis) {
+            return evaluateExpression(parenthesis.getExpression(), tuple, context);
+        } else if (expr instanceof Addition || expr instanceof Subtraction
+                || expr instanceof Multiplication || expr instanceof Division) {
+            return evaluateArithmeticExpression((BinaryExpression) expr, tuple, context);
         } else {
             throw new DBException(ExceptionTypes.UnsupportedExpression(expr));
         }
+    }
+
+    private Value evaluateArithmeticExpression(BinaryExpression expr, Tuple tuple, EvalContext context)
+            throws DBException {
+        Value leftValue = evaluateExpression(expr.getLeftExpression(), tuple, context);
+        Value rightValue = evaluateExpression(expr.getRightExpression(), tuple, context);
+        if (!isNumeric(leftValue) || !isNumeric(rightValue)) {
+            throw new DBException(ExceptionTypes.UnsupportedExpression(expr));
+        }
+        boolean resultIsFloat = leftValue.type == ValueType.FLOAT
+                || rightValue.type == ValueType.FLOAT
+                || expr instanceof Division;
+        double left = numericAsDouble(leftValue);
+        double right = numericAsDouble(rightValue);
+        double result;
+        if (expr instanceof Addition) {
+            result = left + right;
+        } else if (expr instanceof Subtraction) {
+            result = left - right;
+        } else if (expr instanceof Multiplication) {
+            result = left * right;
+        } else {
+            result = left / right;
+        }
+        if (resultIsFloat) {
+            return new Value(result);
+        }
+        return new Value((long) result);
+    }
+
+    private boolean isNumeric(Value value) {
+        return value != null && (value.type == ValueType.INTEGER || value.type == ValueType.FLOAT);
+    }
+
+    private double numericAsDouble(Value value) {
+        if (value.type == ValueType.INTEGER) {
+            return ((Long) value.value).doubleValue();
+        }
+        return (Double) value.value;
     }
 
     private boolean evaluateInExpression(Tuple tuple, InExpression inExpression, EvalContext context) throws DBException {

@@ -100,7 +100,7 @@ public class PhysicalPlanner {
                                                   Tuple outerTuple)
             throws DBException {
         PhysicalOperator inputOp = generateOperator(dbManager, logicalProjectOp.getChild(), outerTuple);
-        return new ProjectOperator(inputOp, logicalProjectOp.getOutputSchema());
+        return new ExpressionProjectOperator(inputOp, logicalProjectOp.getSelectItems());
     }
 
     /**

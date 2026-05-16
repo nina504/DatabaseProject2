@@ -12,6 +12,7 @@ import edu.sustech.cs307.value.ValueType;
 import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.expression.Function;
 import net.sf.jsqlparser.schema.Column;
+import net.sf.jsqlparser.statement.select.AllColumns;
 import net.sf.jsqlparser.statement.select.SelectItem;
 
 import java.util.ArrayList;
@@ -79,7 +80,7 @@ public class AggregateOperator implements PhysicalOperator {
                 if (expression instanceof Column) {
                     values.add(state.groupValues.get(groupIndex++));
                 } else if (expression instanceof Function) {
-                    values.add(state.aggregateValues.get(aggregateIndex++));
+                    values.add(finalizeAggregateValue((Function) expression, state.aggregateValues.get(aggregateIndex++)));
                 } else {
                     throw new DBException(ExceptionTypes.NotSupportedOperation(expression));
                 }
@@ -131,15 +132,17 @@ public class AggregateOperator implements PhysicalOperator {
 
     private ColumnMeta buildFunctionColumnMeta(Function function, int offset) throws DBException {
         String functionName = function.getName().toLowerCase(Locale.ROOT);
-        if (!functionName.equals("min") && !functionName.equals("max")) {
+        if (!functionName.equals("min") && !functionName.equals("max") && !functionName.equals("sum")
+                && !functionName.equals("avg") && !functionName.equals("count")) {
             throw new DBException(ExceptionTypes.NotSupportedOperation(function));
         }
-        Expression argument = getSingleFunctionArgument(function);
-        if (!(argument instanceof Column column)) {
-            throw new DBException(ExceptionTypes.NotSupportedOperation(function));
+        if (functionName.equals("count")) {
+            return new ColumnMeta("count", function.toString(), ValueType.INTEGER, Value.INT_SIZE, offset);
         }
-        ColumnMeta source = findColumnMeta(column);
-        return new ColumnMeta(functionName, function.toString(), source.type, source.len, offset);
+        ValueType sourceType = inferExpressionType(getSingleFunctionArgument(function));
+        ValueType resultType = functionName.equals("avg") ? ValueType.FLOAT : sourceType;
+        int len = resultType == ValueType.INTEGER ? Value.INT_SIZE : Value.FLOAT_SIZE;
+        return new ColumnMeta(functionName, function.toString(), resultType, len, offset);
     }
 
     private void accumulate(AggregateState state, Tuple tuple) throws DBException {
@@ -150,15 +153,24 @@ public class AggregateOperator implements PhysicalOperator {
                 continue;
             }
             String functionName = function.getName().toLowerCase(Locale.ROOT);
-            Value candidate = tuple.evaluateExpression(getSingleFunctionArgument(function));
             while (state.aggregateValues.size() <= aggregateIndex) {
-                state.aggregateValues.add(null);
+                state.aggregateValues.add(new AggregateValue());
             }
-            Value current = state.aggregateValues.get(aggregateIndex);
-            if (current == null
-                    || (functionName.equals("min") && ValueComparer.compare(candidate, current) < 0)
-                    || (functionName.equals("max") && ValueComparer.compare(candidate, current) > 0)) {
-                state.aggregateValues.set(aggregateIndex, candidate);
+            AggregateValue current = state.aggregateValues.get(aggregateIndex);
+            if (functionName.equals("count")) {
+                current.count++;
+                aggregateIndex++;
+                continue;
+            }
+            Value candidate = tuple.evaluateExpression(getSingleFunctionArgument(function));
+            if (functionName.equals("min") || functionName.equals("max")) {
+                if (current.value == null
+                        || (functionName.equals("min") && ValueComparer.compare(candidate, current.value) < 0)
+                        || (functionName.equals("max") && ValueComparer.compare(candidate, current.value) > 0)) {
+                    current.value = candidate;
+                }
+            } else if (functionName.equals("sum") || functionName.equals("avg")) {
+                accumulateNumeric(current, candidate);
             }
             aggregateIndex++;
         }
@@ -176,7 +188,57 @@ public class AggregateOperator implements PhysicalOperator {
         if (function.getParameters() == null || function.getParameters().size() != 1) {
             throw new DBException(ExceptionTypes.NotSupportedOperation(function));
         }
+        if (function.getParameters().get(0) instanceof AllColumns) {
+            throw new DBException(ExceptionTypes.NotSupportedOperation(function));
+        }
         return function.getParameters().get(0);
+    }
+
+    private void accumulateNumeric(AggregateValue current, Value candidate) throws DBException {
+        if (candidate.type != ValueType.INTEGER && candidate.type != ValueType.FLOAT) {
+            throw new DBException(ExceptionTypes.UnsupportedValueType(candidate.type));
+        }
+        if (candidate.type == ValueType.FLOAT) {
+            current.floatResult = true;
+            current.doubleSum += (Double) candidate.value;
+        } else {
+            long value = (Long) candidate.value;
+            current.longSum += value;
+            current.doubleSum += value;
+        }
+        current.count++;
+    }
+
+    private Value finalizeAggregateValue(Function function, AggregateValue aggregateValue) throws DBException {
+        String functionName = function.getName().toLowerCase(Locale.ROOT);
+        if (functionName.equals("min") || functionName.equals("max")) {
+            return aggregateValue.value;
+        }
+        if (functionName.equals("count")) {
+            return new Value(aggregateValue.count);
+        }
+        if (functionName.equals("sum")) {
+            if (aggregateValue.floatResult || inferExpressionType(getSingleFunctionArgument(function)) == ValueType.FLOAT) {
+                return new Value(aggregateValue.doubleSum);
+            }
+            return new Value(aggregateValue.longSum);
+        }
+        if (functionName.equals("avg")) {
+            double average = aggregateValue.count == 0 ? 0.0 : aggregateValue.doubleSum / aggregateValue.count;
+            return new Value(average);
+        }
+        throw new DBException(ExceptionTypes.NotSupportedOperation(function));
+    }
+
+    private ValueType inferExpressionType(Expression expression) throws DBException {
+        if (expression instanceof Column column) {
+            return findColumnMeta(column).type;
+        }
+        String text = expression.toString();
+        if (text.contains("/") || text.contains(".")) {
+            return ValueType.FLOAT;
+        }
+        return ValueType.INTEGER;
     }
 
     private ColumnMeta findColumnMeta(Column column) throws DBException {
@@ -229,11 +291,19 @@ public class AggregateOperator implements PhysicalOperator {
 
     private static class AggregateState {
         private final List<Value> groupValues;
-        private final ArrayList<Value> aggregateValues;
+        private final ArrayList<AggregateValue> aggregateValues;
 
         private AggregateState(List<Value> groupValues) {
             this.groupValues = groupValues;
             this.aggregateValues = new ArrayList<>();
         }
+    }
+
+    private static class AggregateValue {
+        private Value value;
+        private long count;
+        private long longSum;
+        private double doubleSum;
+        private boolean floatResult;
     }
 }

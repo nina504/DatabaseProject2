@@ -1,0 +1,10 @@
+create table demo_students(id int, name varchar, age int, gpa double);
+insert into demo_students(id, name, age, gpa) values (1, 'alice', 18, 3.62), (2, 'bruce', 19, 3.18), (3, 'carol', 20, 3.91), (4, 'david', 21, 2.88), (5, 'emily', 18, 3.45), (6, 'frank', 19, 3.74), (7, 'grace', 20, 3.05), (8, 'henry', 21, 3.33), (9, 'irene', 22, 3.81), (10, 'jack', 18, 2.96), (11, 'kelly', 19, 3.56), (12, 'leo', 20, 3.22), (13, 'mona', 21, 3.67), (14, 'nina', 22, 3.12), (15, 'oscar', 18, 3.99), (16, 'paul', 19, 2.75), (17, 'queen', 20, 3.48), (18, 'rachel', 21, 3.27), (19, 'steve', 22, 3.86), (20, 'tina', 18, 3.14), (21, 'ursula', 19, 3.71), (22, 'victor', 20, 2.94), (23, 'wendy', 21, 3.53), (24, 'xavier', 22, 3.38), (25, 'yara', 18, 3.83), (26, 'zack', 19, 3.01), (27, 'amy', 20, 3.64), (28, 'ben', 21, 2.89), (29, 'cindy', 22, 3.76), (30, 'dan', 18, 3.29), (31, 'eva', 19, 3.92), (32, 'felix', 20, 3.11), (33, 'gina', 21, 3.47), (34, 'hugo', 22, 3.58), (35, 'ivy', 18, 2.97), (36, 'jason', 19, 3.69), (37, 'kate', 20, 3.24), (38, 'louis', 21, 3.88), (39, 'mia', 22, 3.06), (40, 'noah', 18, 3.41), (41, 'olivia', 19, 3.79), (42, 'peter', 20, 2.84), (43, 'quinn', 21, 3.57), (44, 'rose', 22, 3.35), (45, 'sam', 18, 3.73), (46, 'tracy', 19, 3.09), (47, 'uma', 20, 3.95), (48, 'vince', 21, 3.16), (49, 'will', 22, 3.68), (50, 'zoe', 18, 3.52);
+select count(*) from demo_students;
+select age, count(*), max(gpa), min(gpa), avg(gpa) from demo_students group by age order by age asc;
+select id, name, age, gpa from demo_students where age >= 20 and gpa > 3.5 order by gpa desc;
+select id, name, age + 1, gpa * 2 from demo_students order by id desc;
+create index idx_demo_age on demo_students(age);
+explain select * from demo_students where age = 20;
+select * from demo_students where age = 20;
+print index idx_demo_age;

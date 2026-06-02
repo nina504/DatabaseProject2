@@ -99,4 +99,8 @@ public class FilterOperator implements PhysicalOperator {
     public ArrayList<ColumnMeta> outputSchema() {
         return child.outputSchema();
     }
+    @Override
+    public String toString() {
+        return PlanTreeFormatter.formatUnaryTree("FilterOperator(condition=" + whereExpr + ")", child);
+    }
 }

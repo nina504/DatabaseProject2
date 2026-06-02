@@ -11,6 +11,9 @@ import edu.sustech.cs307.tuple.JoinTuple;
 import edu.sustech.cs307.tuple.Tuple;
 import net.sf.jsqlparser.expression.Expression;
 
+
+//Nested Loop Join 的实现是先读取左右输入，再用双重循环枚举每一对左右 tuple，
+// 把它们包装成 JoinTuple，用 tuple.eval_expr 判断 ON 等值条件，满足条件的组合就作为 join 结果输出。
 public class NestedLoopJoinOperator implements PhysicalOperator {
 
     private PhysicalOperator leftOperator;
@@ -25,6 +28,7 @@ public class NestedLoopJoinOperator implements PhysicalOperator {
 
     public NestedLoopJoinOperator(PhysicalOperator leftOperator, PhysicalOperator rightOperator,
             Collection<Expression> expr) {
+        // 保存左右输入算子和 JOIN ON 条件。
         this.leftOperator = leftOperator;
         this.rightOperator = rightOperator;
         this.expr = expr;
@@ -32,14 +36,18 @@ public class NestedLoopJoinOperator implements PhysicalOperator {
 
     @Override
     public boolean hasNext() throws DBException {
+        // current 已经准备好时，直接返回 true。
         if (current != null) {
             return true;
         }
+        // 双重for循环：对每一行左表 tuple ，都尝试匹配所有右表 tuple。
         while (leftCursor < leftTuples.size()) {
             Tuple leftTuple = leftTuples.get(leftCursor);
             while (rightCursor < rightTuples.size()) {
                 Tuple rightTuple = rightTuples.get(rightCursor++);
+                // 合并左右 tuple，joinTuple = leftTuple + rightTuple
                 JoinTuple joinTuple = new JoinTuple(leftTuple, rightTuple, outputTupleSchema);
+                // if ON 条件成立: 输出 joinTuple
                 if (matches(joinTuple)) {
                     current = joinTuple;
                     return true;
@@ -53,6 +61,7 @@ public class NestedLoopJoinOperator implements PhysicalOperator {
 
     @Override
     public void Begin() throws DBException {
+        // 初始化 JOIN 状态。
         leftTuples.clear();
         rightTuples.clear();
         leftCursor = 0;
@@ -60,6 +69,7 @@ public class NestedLoopJoinOperator implements PhysicalOperator {
         current = null;
         outputTupleSchema = buildTupleSchema();
 
+        // 读取左输入的全部 tuple。
         leftOperator.Begin();
         while (leftOperator.hasNext()) {
             leftOperator.Next();
@@ -69,6 +79,7 @@ public class NestedLoopJoinOperator implements PhysicalOperator {
             }
         }
 
+        // 读取右输入的全部 tuple。
         rightOperator.Begin();
         while (rightOperator.hasNext()) {
             rightOperator.Next();
@@ -81,6 +92,7 @@ public class NestedLoopJoinOperator implements PhysicalOperator {
 
     @Override
     public void Next() throws DBException {
+        // 如果还没有准备好 current，就向前寻找下一条匹配结果。
         if (current == null) {
             hasNext();
         }
@@ -88,6 +100,7 @@ public class NestedLoopJoinOperator implements PhysicalOperator {
 
     @Override
     public Tuple Current() {
+        // 返回当前 JOIN 结果，并清空 current，准备下一次查找。
         Tuple result = current;
         current = null;
         return result;
@@ -95,6 +108,7 @@ public class NestedLoopJoinOperator implements PhysicalOperator {
 
     @Override
     public void Close() {
+        // 关闭左右输入并清理缓存。
         leftOperator.Close();
         rightOperator.Close();
         leftTuples.clear();
@@ -104,6 +118,7 @@ public class NestedLoopJoinOperator implements PhysicalOperator {
 
     @Override
     public ArrayList<ColumnMeta> outputSchema() {
+        // JOIN 输出 schema = 左输入 schema + 右输入 schema。
         ArrayList<ColumnMeta> result = new ArrayList<>();
         result.addAll(leftOperator.outputSchema());
         result.addAll(rightOperator.outputSchema());
@@ -111,6 +126,7 @@ public class NestedLoopJoinOperator implements PhysicalOperator {
     }
 
     private TabCol[] buildTupleSchema() {
+        // 构造 JoinTuple 使用的列信息。
         ArrayList<TabCol> schema = new ArrayList<>();
         for (ColumnMeta columnMeta : leftOperator.outputSchema()) {
             schema.add(new TabCol(columnMeta.tableName, columnMeta.name));
@@ -122,14 +138,21 @@ public class NestedLoopJoinOperator implements PhysicalOperator {
     }
 
     private boolean matches(Tuple tuple) throws DBException {
+        // 没有 ON 条件时，所有左右组合都匹配。
         if (expr == null || expr.isEmpty()) {
             return true;
         }
+        // 逐个判断 ON 条件；全部满足才输出。
         for (Expression expression : expr) {
             if (!tuple.eval_expr(expression)) {
                 return false;
             }
         }
         return true;
+    }
+    @Override
+    public String toString() {
+        return PlanTreeFormatter.formatBinaryTree("NestedLoopJoinOperator(condition=" + expr + ")",
+                leftOperator, rightOperator);
     }
 }

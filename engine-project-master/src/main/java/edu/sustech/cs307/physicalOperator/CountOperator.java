@@ -27,11 +27,14 @@ public class CountOperator implements PhysicalOperator {
 
     @Override
     public void Begin() throws DBException {
+        // 启动输入算子。
         child.Begin();
         count = 0;
+        // 遍历输入结果；如果 child 是 FilterOperator，这里统计的是过滤后的行。
         while (child.hasNext()) {
             child.Next();
             if (child.Current() != null) {
+                // 每读到一行有效 tuple，计数加一。
                 count++;
             }
         }
@@ -45,19 +48,26 @@ public class CountOperator implements PhysicalOperator {
     @Override
     public Tuple Current() {
         ArrayList<Value> values = new ArrayList<>();
+        // count 只输出一行，值为累计行数。
         values.add(new Value(count, ValueType.INTEGER));
         return new TempTuple(values);
     }
 
     @Override
     public void Close() {
+        // 关闭输入算子。
         child.Close();
     }
 
     @Override
     public ArrayList<ColumnMeta> outputSchema() {
         ArrayList<ColumnMeta> schema = new ArrayList<>();
+        // 返回 count 结果列的表头信息。
         schema.add(new ColumnMeta("count", "count", ValueType.INTEGER, Value.INT_SIZE, 0));
         return schema;
+    }
+    @Override
+    public String toString() {
+        return PlanTreeFormatter.formatUnaryTree("CountOperator()", child);
     }
 }

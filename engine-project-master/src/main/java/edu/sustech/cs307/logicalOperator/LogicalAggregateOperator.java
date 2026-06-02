@@ -14,8 +14,11 @@ public class LogicalAggregateOperator extends LogicalOperator {
     public LogicalAggregateOperator(LogicalOperator child, List<SelectItem<?>> selectItems,
                                     List<Expression> groupByExpressions) {
         super(Collections.singletonList(child));
+        // child 是聚合前的数据来源。
         this.child = child;
+        // selectItems 保存分组列和聚合函数。
         this.selectItems = selectItems;
+        // groupByExpressions 保存分组字段。
         this.groupByExpressions = groupByExpressions;
     }
 

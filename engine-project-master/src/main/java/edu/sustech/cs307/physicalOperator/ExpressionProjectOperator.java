@@ -73,6 +73,11 @@ public class ExpressionProjectOperator implements PhysicalOperator {
         return outputSchema;
     }
 
+    @Override
+    public String toString() {
+        return PlanTreeFormatter.formatUnaryTree("ExpressionProjectOperator(selectItems=" + selectItems + ")", child);
+    }
+
     private ArrayList<ColumnMeta> buildOutputSchema() throws DBException {
         ArrayList<ColumnMeta> schema = new ArrayList<>();
         int offset = 0;

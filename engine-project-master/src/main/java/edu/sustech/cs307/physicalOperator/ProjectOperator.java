@@ -86,4 +86,8 @@ public class ProjectOperator implements PhysicalOperator {
         }
         return result;
     }
+    @Override
+    public String toString() {
+        return PlanTreeFormatter.formatUnaryTree("ProjectOperator(outputSchema=" + outputSchema + ")", child);
+    }
 }

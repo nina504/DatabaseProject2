@@ -127,14 +127,20 @@ public class RecordFileHandle {
      */
     public void DeleteRecord(RID rid) throws DBException {
 
+        // 按 RID 找到目标页。
         RecordPageHandle pageHandle = FetchPageHandle(rid.pageNum);
+        // 记录删除前该页是否已满。
         boolean wasFull = pageHandle.pageHdr.getNumberOfRecords() == fileHeader.getNumberOfRecordsPrePage();
+        // 清除 slot 占用标记。
         BitMap.reset(pageHandle.bitmap, rid.slotNum);
+        // 更新页内记录数。
         pageHandle.pageHdr.setNumberOfRecords(pageHandle.pageHdr.getNumberOfRecords() - 1);
         if (wasFull) {
+            // 满页删除后重新加入空闲页链表。
             pageHandle.pageHdr.setNextFreePageNo(fileHeader.getFirstFreePage());
             fileHeader.setFirstFreePage(rid.pageNum);
         }
+        // 标记 dirty，等待 FlushAllPages 写回磁盘。
         bufferPool.unpin_page(pageHandle.page.position, true);
     }
 

@@ -91,8 +91,10 @@ public class PhysicalPlanner {
 
     private static PhysicalOperator handleJoin(DBManager dbManager, LogicalJoinOperator logicalJoinOp, Tuple outerTuple)
             throws DBException {
+        // 分别生成 JOIN 左右两侧的物理算子。
         PhysicalOperator leftOp = generateOperator(dbManager, logicalJoinOp.getLeftInput(), outerTuple);
         PhysicalOperator rightOp = generateOperator(dbManager, logicalJoinOp.getRightInput(), outerTuple);
+        // 使用 NestedLoopJoinOperator 执行连接。
         return new NestedLoopJoinOperator(leftOp, rightOp, logicalJoinOp.getJoinExprs());
     }
 
@@ -240,13 +242,17 @@ public class PhysicalPlanner {
     }
 
     private static PhysicalOperator handleDelete(DBManager dbManager, LogicalDeleteOperator logicalDeleteOp) throws DBException {
+        // 生成 DELETE 的输入扫描器。
         PhysicalOperator scanner = generateOperator(dbManager, logicalDeleteOp.getChild());
+        // 生成真正执行删除的 DeleteOperator。
         return new DeleteOperator(scanner, dbManager, logicalDeleteOp.getTableName(), logicalDeleteOp.getWhereExpr());
     }
 
     private static PhysicalOperator handleCount(DBManager dbManager, LogicalCountOperator logicalCountOp,
                                                 Tuple outerTuple) throws DBException {
+        // 先生成 count 的输入算子；有 WHERE 时这里通常是 FilterOperator。
         PhysicalOperator input = generateOperator(dbManager, logicalCountOp.getChild(), outerTuple);
+        // 再生成 CountOperator，负责遍历输入并累加行数。
         return new CountOperator(input);
     }
 
@@ -259,7 +265,9 @@ public class PhysicalPlanner {
     private static PhysicalOperator handleAggregate(DBManager dbManager, LogicalAggregateOperator logicalAggregateOp,
                                                     Tuple outerTuple)
             throws DBException {
+        // 先生成聚合前的输入算子。
         PhysicalOperator input = generateOperator(dbManager, logicalAggregateOp.getChild(), outerTuple);
+        // 生成 AggregateOperator，负责分组和聚合计算。
         return new AggregateOperator(input, logicalAggregateOp.getSelectItems(), logicalAggregateOp.getGroupByExpressions());
     }
 

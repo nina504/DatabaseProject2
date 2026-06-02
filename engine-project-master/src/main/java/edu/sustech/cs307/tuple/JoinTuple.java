@@ -16,8 +16,10 @@ public class JoinTuple extends Tuple {
     private final TabCol[] tupleSchema;
 
     public JoinTuple(Tuple leftTuple, Tuple rightTuple, TabCol[] tabCol) {
+        // 保存 JOIN 左右两侧 tuple。
         this.leftTuple = leftTuple;
         this.rightTuple = rightTuple;
+        // 保存连接后的完整列信息。
         this.tupleSchema = tabCol;
     }
 
@@ -30,10 +32,12 @@ public class JoinTuple extends Tuple {
      */
     @Override
     public Value getValue(TabCol tabCol) throws DBException {
+        // 先从左侧 tuple 取值。
         Value leftValue = leftTuple.getValue(tabCol);
         if (leftValue != null) {
             return leftValue;
         }
+        // 左侧没有该列时，再从右侧 tuple 取值。
         return rightTuple.getValue(tabCol);
     }
 
@@ -44,12 +48,14 @@ public class JoinTuple extends Tuple {
      */
     @Override
     public TabCol[] getTupleSchema() {
+        // 返回左右表合并后的 schema。
         return tupleSchema;
     }
 
     @Override
     public Value[] getValues() throws DBException {
         // 通过 meta 顺序和信息获取所有 Value
+        // 按合并后的 schema 顺序取出所有值。
         ArrayList<Value> values = new ArrayList<>();
         for (var tabcol : this.tupleSchema) {
             Value value = getValue(tabcol);

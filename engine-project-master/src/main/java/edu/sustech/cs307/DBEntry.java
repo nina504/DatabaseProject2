@@ -161,16 +161,20 @@ public class DBEntry {
     private static void executeSql(DBManager dbManager, String sql) {
         PhysicalOperator physicalOperator = null;
         try {
+            // 逻辑规划：DELETE 在这里生成 LogicalDeleteOperator。
             LogicalOperator operator = LogicalPlanner.resolveAndPlan(dbManager, sql);
             if (operator == null) {
                 return;
             }
+            // 物理规划：LogicalDeleteOperator 映射成 DeleteOperator。
             physicalOperator = PhysicalPlanner.generateOperator(dbManager, operator);
             if (physicalOperator == null) {
                 Logger.info(operator);
                 return;
             }
+            // 执行算子：DELETE 的 Begin() 完成实际删除。
             printResult(physicalOperator);
+            // 持久化：把 dirty page 刷回磁盘。
             dbManager.getBufferPool().FlushAllPages("");
         } catch (DBException e) {
             Logger.error(e.getMessage());
@@ -191,6 +195,7 @@ public class DBEntry {
         Logger.info(getSeparator(physicalOperator.outputSchema().size()));
         Logger.info(getHeaderString(physicalOperator.outputSchema()));
         Logger.info(getSeparator(physicalOperator.outputSchema().size()));
+        // 火山模型入口：调用物理算子的 Begin()。
         physicalOperator.Begin();
         while (physicalOperator.hasNext()) {
             physicalOperator.Next();

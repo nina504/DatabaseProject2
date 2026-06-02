@@ -47,10 +47,10 @@ insert into demo_classes(age, label) values (18, 'freshman'), (19, 'sophomore'),
 select demo_students.name, demo_students.age, demo_classes.label from demo_students join demo_classes on demo_students.age = demo_classes.age where demo_students.gpa > 3.8;
 
 -- 2. 高级子查询：IN、NOT IN 和 EXISTS。
-select id, name, age from demo_students where age in (select age from demo_classes where label = 'junior');
-select id, name, age from demo_students where age not in (select age from demo_classes where label = 'graduate');
-select id, name, age from demo_students where exists (select * from demo_classes where demo_classes.age = demo_students.age);
-
+select id, name, age from demo_students where age in (select age from demo_classes where label = 'junior' or label = 'freshman');
+select id, name, age from demo_students where age not in (select age from demo_classes where label = 'graduate' or label = 'senior' or label = 'sophomore');
+select id, name, age from demo_students where exists (select * from demo_classes where demo_classes.age = demo_students.age and (label = 'junior' or label = 'freshman'));
+select id, name, age from demo_students where not exists (select * from demo_classes where demo_classes.age = demo_students.age and (label = 'graduate' or label = 'senior' or label = 'sophomore'));
 -- 2. 高级部分 ALTER TABLE：添加列、更新新列、删除列。
 create table alter_demo(id int, age int);
 insert into alter_demo(id, age) values (1, 18), (2, 20);
@@ -67,6 +67,7 @@ create index idx_demo_age on demo_students(age);
 explain select * from demo_students where age = 20;
 select * from demo_students where age = 20;
 print index idx_demo_age;
+drop index idx_demo_age;
 
 -- 清理 Join 和子查询演示表。
 drop table demo_classes;

@@ -42,13 +42,19 @@ public class DeleteOperator implements PhysicalOperator {
 
     @Override
     public void Begin() throws DBException {
+        // 启动顺序扫描。
         seqScanOperator.Begin();
         RecordFileHandle fileHandle = seqScanOperator.getFileHandle();
+        // 逐行取出带 RID 的 TableTuple。
         while (seqScanOperator.hasNext()) {
             seqScanOperator.Next();
             TableTuple tuple = (TableTuple) seqScanOperator.Current();
+            // 判断 WHERE；没有 WHERE 时删除全部。
             if (tuple != null && (whereExpr == null || tuple.eval_expr(whereExpr))) {
+                // 先删除索引项。
                 dbManager.deleteIndexEntries(tableName, tuple.getRID(), tuple.getValues());
+                // 再按 RID 删除底层记录。
+                // 执行时标记 dirty，SQL 结束后统一 FlushAllPages
                 fileHandle.DeleteRecord(tuple.getRID());
                 deleteCount++;
             }
@@ -63,6 +69,7 @@ public class DeleteOperator implements PhysicalOperator {
     @Override
     public Tuple Current() {
         ArrayList<Value> values = new ArrayList<>();
+        // 返回删除行数。
         values.add(new Value(deleteCount, ValueType.INTEGER));
         return new TempTuple(values);
     }
@@ -77,5 +84,10 @@ public class DeleteOperator implements PhysicalOperator {
         ArrayList<ColumnMeta> schema = new ArrayList<>();
         schema.add(new ColumnMeta("delete", "numberOfDeletedRows", ValueType.INTEGER, Value.INT_SIZE, 0));
         return schema;
+    }
+    @Override
+    public String toString() {
+        return PlanTreeFormatter.formatUnaryTree("DeleteOperator(table=" + tableName
+                + ", condition=" + whereExpr + ")", seqScanOperator);
     }
 }

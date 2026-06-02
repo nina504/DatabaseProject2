@@ -101,6 +101,11 @@ public class InsertOperator implements PhysicalOperator {
         return value.ToByte();
     }
 
+    @Override
+    public String toString() {
+        return "InsertOperator(table=" + data_file + ")";
+    }
+
     public Tuple getNextTuple() {
         return null;
     }

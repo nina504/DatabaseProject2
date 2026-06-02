@@ -86,4 +86,9 @@ public class IndexScanOperator implements PhysicalOperator {
     public ArrayList<ColumnMeta> outputSchema() {
         return tableMeta == null ? new ArrayList<>() : tableMeta.columns_list;
     }
+    @Override
+    public String toString() {
+        return "IndexScanOperator(table=" + tableName + ", index=" + indexName
+                + ", condition=" + operator + " " + value + ")";
+    }
 }

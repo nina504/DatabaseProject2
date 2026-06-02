@@ -35,6 +35,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/*AND / OR / NOT
+= / > / >= / < / <=
+IN / NOT IN
+EXISTS / NOT EXISTS
+算术表达式 age + 1
+列引用 users.age
+常量 18, 'alice', 3.5 */
+
 public abstract class Tuple {
     public abstract Value getValue(TabCol tabCol) throws DBException;
 
@@ -95,10 +103,15 @@ public abstract class Tuple {
             return evaluateInExpression(tuple, inExpression, context);
         } else if (whereExpr instanceof ExistsExpression existsExpression) {
             return evaluateExistsExpression(tuple, existsExpression, context);
+        } else if (whereExpr instanceof ExpressionList<?> expressionList) {
+            if (expressionList.size() == 1) {
+                return evaluateCondition(tuple, expressionList.get(0), context);
+            }
+            throw new DBException(ExceptionTypes.UnsupportedExpression(whereExpr));
         } else if (whereExpr instanceof BinaryExpression binaryExpression) {
             return evaluateBinaryExpression(tuple, binaryExpression, context);
         } else {
-            return true;
+            throw new DBException(ExceptionTypes.UnsupportedExpression(whereExpr));
         }
     }
 
@@ -162,6 +175,8 @@ public abstract class Tuple {
             return resolveColumnValue(tuple, (Column) expr, context.outerTuple);
         } else if (expr instanceof Parenthesis parenthesis) {
             return evaluateExpression(parenthesis.getExpression(), tuple, context);
+        } else if (expr instanceof ExpressionList<?> expressionList && expressionList.size() == 1) {
+            return evaluateExpression(expressionList.get(0), tuple, context);
         } else if (expr instanceof Addition || expr instanceof Subtraction
                 || expr instanceof Multiplication || expr instanceof Division) {
             return evaluateArithmeticExpression((BinaryExpression) expr, tuple, context);
@@ -209,30 +224,38 @@ public abstract class Tuple {
         return (Double) value.value;
     }
 
+    //遍历右边，找是否有与左边相等的元素（适合子查询小）
     private boolean evaluateInExpression(Tuple tuple, InExpression inExpression, EvalContext context) throws DBException {
+        // IN / NOT IN 的左侧表达式，例如 age IN (...) 中的 age，按当前 tuple 求值。
         Value leftValue = evaluateExpression(inExpression.getLeftExpression(), tuple, context);
         if (leftValue == null) {
             return false;
         }
+        // 右侧可以是常量列表，也可以是子查询；统一转换成候选 Value 列表。
         List<Value> candidates = evaluateInCandidates(inExpression.getRightExpression(), tuple, context);
         boolean matched = false;
+        // 逐个比较左值是否出现在候选列表中。
         for (Value candidate : candidates) {
             if (ValueComparer.compare(leftValue, candidate) == 0) {
                 matched = true;
                 break;
             }
         }
+        // NOT IN 在 IN 的匹配结果上取反。
         return inExpression.isNot() ? !matched : matched;
     }
 
     private List<Value> evaluateInCandidates(Expression rightExpression, Tuple tuple, EvalContext context)
             throws DBException {
+        // IN (SELECT ...)：执行子查询，并取每一行的第一列作为候选值。
         if (rightExpression instanceof ParenthesedSelect parenthesedSelect) {
             return executeValueSubquery(parenthesedSelect.getSelect(), tuple, context);
         }
+        // 兼容解析器直接给出 Select 的情况。
         if (rightExpression instanceof Select select) {
             return executeValueSubquery(select, tuple, context);
         }
+        // IN (v1, v2, ...)：逐个计算列表里的表达式作为候选值。
         if (rightExpression instanceof ExpressionList<?> expressionList) {
             ArrayList<Value> values = new ArrayList<>();
             for (Expression expression : expressionList.getExpressions()) {
@@ -243,8 +266,11 @@ public abstract class Tuple {
         throw new DBException(ExceptionTypes.UnsupportedExpression(rightExpression));
     }
 
+
+    //执行 EXISTS 里的子查询，看结果是否为空。EXISTS = true/false
     private boolean evaluateExistsExpression(Tuple tuple, ExistsExpression existsExpression, EvalContext context)
             throws DBException {
+        // EXISTS / NOT EXISTS 的右侧必须是一个子查询。
         Expression rightExpression = existsExpression.getRightExpression();
         Select select;
         if (rightExpression instanceof ParenthesedSelect parenthesedSelect) {
@@ -255,6 +281,7 @@ public abstract class Tuple {
             throw new DBException(ExceptionTypes.UnsupportedExpression(rightExpression));
         }
 
+        // EXISTS 判断子查询结果是否非空；NOT EXISTS 在该结果上取反。
         boolean exists = executeExistsSubquery(select, tuple, context);
         return existsExpression.isNot() ? !exists : exists;
     }
@@ -264,9 +291,11 @@ public abstract class Tuple {
             throw new DBException(ExceptionTypes.UnsupportedExpression(select));
         }
         ArrayList<Value> values = new ArrayList<>();
+        // 关联子查询需要把当前外层 tuple 放进 context，供子查询表达式解析外层列。
         for (Tuple row : executeSubquery(select, context.withOuterTuple(tuple))) {
             Value[] rowValues = row.getValues();
             if (rowValues.length > 0) {
+                // IN 子查询当前只取第一列作为比较集合。
                 values.add(rowValues[0]);
             }
         }
@@ -277,17 +306,20 @@ public abstract class Tuple {
         if (context.dbManager == null) {
             throw new DBException(ExceptionTypes.UnsupportedExpression(select));
         }
+        // EXISTS 只关心有没有至少一行结果，不关心具体输出值。
         boolean exists = !executeSubquery(select, context.withOuterTuple(tuple)).isEmpty();
         return exists;
     }
 
     private List<Tuple> executeSubquery(Select select, EvalContext context) throws DBException {
+        // 子查询沿用普通 SELECT 的规划流程：先逻辑计划，再生成物理计划。
         LogicalOperator logicalOperator = LogicalPlanner.handleSelect(context.dbManager, select);
         PhysicalOperator physicalOperator = PhysicalPlanner.generateOperator(context.dbManager, logicalOperator,
                 context.outerTuple);
         ArrayList<Tuple> rows = new ArrayList<>();
         physicalOperator.Begin();
         try {
+            // 执行物理计划并把结果物化成列表，供 IN/EXISTS 判断。
             while (physicalOperator.hasNext()) {
                 physicalOperator.Next();
                 Tuple current = physicalOperator.Current();
@@ -302,10 +334,12 @@ public abstract class Tuple {
     }
 
     private Value resolveColumnValue(Tuple tuple, Column column, Tuple outerTuple) throws DBException {
+        // 先在当前 tuple 中解析列名；子查询内部列优先。
         Value currentValue = resolveColumnValueFromTuple(tuple, column);
         if (currentValue != null) {
             return currentValue;
         }
+        // 当前 tuple 找不到时，再尝试从外层 tuple 中解析，用于关联子查询。
         if (outerTuple != null) {
             return resolveColumnValueFromTuple(outerTuple, column);
         }

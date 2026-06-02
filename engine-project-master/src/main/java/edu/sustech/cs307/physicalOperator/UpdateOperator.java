@@ -147,6 +147,12 @@ public class UpdateOperator implements PhysicalOperator {
         return tableName;
     }
 
+    @Override
+    public String toString() {
+        return PlanTreeFormatter.formatUnaryTree("UpdateOperator(table=" + tableName
+                + ", updateSets=" + updateSets + ", condition=" + whereExpr + ")", seqScanOperator);
+    }
+
     private byte[] toFixedWidthBytes(Value value) {
         if (value.type == ValueType.CHAR) {
             ByteBuffer buffer = ByteBuffer.allocate(Value.CHAR_SIZE);

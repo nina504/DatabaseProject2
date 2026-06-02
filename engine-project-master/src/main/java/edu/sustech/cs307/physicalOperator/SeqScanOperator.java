@@ -15,6 +15,9 @@ import edu.sustech.cs307.record.RecordFileHandle;
 
 import java.util.ArrayList;
 
+//`Begin` 打开表文件并初始化位置，`hasNext` 用 bitmap 找有效 slot，
+// `Next` 根据 RID 读记录并前进，`Current` 返回 `TableTuple`，最后 `Close` 关闭文件。
+
 public class SeqScanOperator implements PhysicalOperator {
     private String tableName;
     private DBManager dbManager;
@@ -135,5 +138,9 @@ public class SeqScanOperator implements PhysicalOperator {
 
     public RecordFileHandle getFileHandle() {
         return fileHandle;
+    }
+    @Override
+    public String toString() {
+        return "SeqScanOperator(table=" + tableName + ")";
     }
 }

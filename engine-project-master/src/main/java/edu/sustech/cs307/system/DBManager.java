@@ -254,10 +254,12 @@ public class DBManager {
         if (tableMeta.hasColumn(columnName)) {
             throw new DBException(ExceptionTypes.ColumnAlreadyExist(columnName));
         }
+        // 在原有定长记录布局后追加新列，构造新的表结构。
         ColumnMeta newColumn = createColumnMeta(tableName, columnName, typeName, recordSize(tableMeta.columns_list));
         ArrayList<ColumnMeta> newColumns = cloneColumns(tableMeta.columns_list);
         newColumns.add(newColumn);
 
+        // 旧记录需要补上新增字段；新增字段使用该类型的简单默认值。
         List<Value[]> rows = readRows(tableName, tableMeta);
         List<Value[]> rewrittenRows = new ArrayList<>();
         Value defaultValue = defaultValue(newColumn.type);
@@ -268,7 +270,9 @@ public class DBManager {
             rewrittenRows.add(rewrittenRow);
         }
 
+        // 按新的记录长度重建表数据文件，再安装并持久化新的元数据。
         replaceTableData(tableName, newColumns, rewrittenRows);
+        // 新增列不会让已有索引失效，因此保留索引元数据并重建运行时索引。
         installTableMeta(tableMeta, newColumns, copyIndexes(tableMeta), copyIndexColumns(tableMeta));
         rebuildTableIndexes(tableName, tableMeta);
         persistRuntimeState();
@@ -282,6 +286,7 @@ public class DBManager {
             throw new DBException(ExceptionTypes.TableHasNoColumn(tableName));
         }
 
+        // 构造去掉目标列后的紧凑表结构，并重新计算每一列的偏移。
         ArrayList<ColumnMeta> newColumns = new ArrayList<>();
         int offset = 0;
         for (ColumnMeta column : tableMeta.columns_list) {
@@ -292,6 +297,7 @@ public class DBManager {
             offset += column.len;
         }
 
+        // 重写每一行：复制除被删除列以外的所有值。
         List<Value[]> rows = readRows(tableName, tableMeta);
         List<Value[]> rewrittenRows = new ArrayList<>();
         for (Value[] row : rows) {
@@ -308,6 +314,7 @@ public class DBManager {
         Map<String, TableMeta.IndexType> newIndexes = copyIndexes(tableMeta);
         Map<String, String> newIndexColumns = copyIndexColumns(tableMeta);
         ArrayList<String> removedIndexes = new ArrayList<>();
+        // 建在被删除列上的索引必须同时从元数据和内存索引缓存中移除。
         for (Map.Entry<String, String> entry : copyIndexColumns(tableMeta).entrySet()) {
             if (entry.getValue().equalsIgnoreCase(columnName)) {
                 removedIndexes.add(entry.getKey());
@@ -319,6 +326,7 @@ public class DBManager {
             this.indexes.remove(indexName);
         }
 
+        // 替换物理数据文件，更新表元数据，重建剩余索引，并持久化所有状态。
         replaceTableData(tableName, newColumns, rewrittenRows);
         installTableMeta(tableMeta, newColumns, newIndexes, newIndexColumns);
         rebuildTableIndexes(tableName, tableMeta);
@@ -474,6 +482,7 @@ public class DBManager {
         ArrayList<ColumnMeta> cloned = new ArrayList<>();
         int offset = 0;
         for (ColumnMeta column : columns) {
+            // 重新计算偏移，保证复制出的 schema 与重写后的定长记录布局一致。
             cloned.add(new ColumnMeta(column.tableName, column.name, column.type, column.len, offset));
             offset += column.len;
         }
@@ -489,6 +498,7 @@ public class DBManager {
     }
 
     private Value defaultValue(ValueType type) throws DBException {
+        // 新增列要给旧行补值；本项目使用 0 或空字符串作为默认值。
         return switch (type) {
             case INTEGER -> new Value(0L);
             case FLOAT -> new Value(0.0);
@@ -507,6 +517,7 @@ public class DBManager {
             try {
                 for (int slotNum = 0; slotNum < recordsPerPage; slotNum++) {
                     if (BitMap.isSet(pageHandle.bitmap, slotNum)) {
+                        // 只读取 bitmap 标记为已占用的 slot，并按当前表结构解码。
                         RID rid = new RID(pageNum, slotNum);
                         Record record = fileHandle.GetRecord(rid);
                         TableTuple tuple = new TableTuple(tableName, tableMeta, record, rid);
@@ -525,10 +536,12 @@ public class DBManager {
             throws DBException {
         String dataFile = String.format("%s/%s", tableName, "data");
         String tempFile = String.format("%s/%s", tableName, "data_alter_tmp");
+        // ALTER 会改变记录宽度，旧数据文件无法安全地原地修改。
         bufferPool.Reset();
         diskManager.DeleteFile(tempFile);
         diskManager.filePages.remove(tempFile);
 
+        // 将重写后的所有行写入临时文件，临时文件的记录长度匹配新表结构。
         recordManager.CreateFile(tempFile, recordSize(newColumns));
         RecordFileHandle tempHandle = recordManager.OpenDataFile(tempFile);
         for (Value[] row : rows) {
@@ -537,6 +550,7 @@ public class DBManager {
         recordManager.CloseFile(tempHandle);
         int tempPages = diskManager.filePages.getOrDefault(tempFile, 1);
 
+        // 用重写后的临时文件替换旧表数据文件。
         bufferPool.Reset();
         diskManager.DeleteFile(dataFile);
         Path source = Path.of(diskManager.getCurrentDir(), tempFile);
@@ -553,6 +567,7 @@ public class DBManager {
     }
 
     private ByteBuf serializeRow(Value[] row) throws DBException {
+        // RecordManager 按表列顺序存储定长字节形式的行。
         ByteBuf buffer = Unpooled.buffer();
         for (Value value : row) {
             buffer.writeBytes(toFixedWidthBytes(value));
@@ -576,6 +591,7 @@ public class DBManager {
     private void installTableMeta(TableMeta tableMeta, ArrayList<ColumnMeta> columns,
                                   Map<String, TableMeta.IndexType> newIndexes,
                                   Map<String, String> newIndexColumns) {
+        // 同时刷新有序列列表和按列名查找的映射，供 TableTuple/getColumnMeta 使用。
         tableMeta.columns_list = columns;
         HashMap<String, ColumnMeta> columnsByName = new HashMap<>();
         for (ColumnMeta column : columns) {
@@ -598,6 +614,7 @@ public class DBManager {
         if (tableMeta.getIndexColumns() == null) {
             return;
         }
+        // 重写后的记录会获得新的物理 RID，因此所有保留的索引都必须重建。
         for (String indexName : tableMeta.getIndexColumns().keySet()) {
             this.indexes.remove(indexName);
             rebuildIndex(tableName, indexName);

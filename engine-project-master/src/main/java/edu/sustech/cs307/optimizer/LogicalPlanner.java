@@ -50,6 +50,8 @@ public class LogicalPlanner {
             Pattern.compile("(?i)^DROP\\s+INDEX\\s+([A-Za-z_][A-Za-z0-9_]*)$");
     private static final Pattern PRINT_INDEX_PATTERN =
             Pattern.compile("(?i)^(?:PRINT|SHOW)\\s+INDEX\\s+([A-Za-z_][A-Za-z0-9_]*)$");
+    // 部分支持 ALTER TABLE：这里目前只识别 ADD COLUMN 和 DROP COLUMN。
+    // 其他 ALTER 形式暂不支持，也不会被转换成逻辑算子。
     private static final Pattern ALTER_ADD_COLUMN_PATTERN =
             Pattern.compile("(?i)^ALTER\\s+TABLE\\s+([A-Za-z_][A-Za-z0-9_]*)\\s+ADD(?:\\s+COLUMN)?\\s+([A-Za-z_][A-Za-z0-9_]*)\\s+(INT|INTEGER|VARCHAR|CHAR|DOUBLE|FLOAT)$");
     private static final Pattern ALTER_DROP_COLUMN_PATTERN =
@@ -81,6 +83,7 @@ public class LogicalPlanner {
         } else if (stmt instanceof Update updateStmt) {
             operator = handleUpdate(dbManager, updateStmt);
         } else if (stmt instanceof Delete deleteStmt) {
+            // 识别 DELETE 语句。
             operator = handleDelete(dbManager, deleteStmt);
         }else if (stmt instanceof Commit) {
             dbManager.commitTransaction();
@@ -116,6 +119,7 @@ public class LogicalPlanner {
         int depth = 0;
         if (plainSelect.getJoins() != null) {
             for (Join join : plainSelect.getJoins()) {
+                // 识别 JOIN：左侧使用当前 root，右侧生成新的表扫描。
                 root = new LogicalJoinOperator(
                         root,
                         new LogicalTableScanOperator(join.getRightItem().toString(), dbManager),
@@ -129,11 +133,13 @@ public class LogicalPlanner {
         if (plainSelect.getWhere() != null) {
             root = new LogicalFilterOperator(root, plainSelect.getWhere());
         }
+        // 简单 count 查询：先保留 WHERE 过滤后的输入，再生成 LogicalCountOperator。
         if (isCountSelect(plainSelect) && plainSelect.getGroupBy() == null) {
             return new LogicalCountOperator(root);
         }
         boolean aggregateSelect = isAggregateSelect(plainSelect);
         if (aggregateSelect) {
+            // 聚合查询：保存 selectItems 和 GROUP BY 字段。
             root = new LogicalAggregateOperator(root, plainSelect.getSelectItems(), getGroupByExpressions(plainSelect));
         }
         if (plainSelect.getOrderByElements() != null && !plainSelect.getOrderByElements().isEmpty()) {
@@ -158,11 +164,14 @@ public class LogicalPlanner {
 
     private static LogicalOperator handleDelete(DBManager dbManager, Delete deleteStmt) throws DBException {
         String tableName = deleteStmt.getTable().getName();
+        // DELETE 先以目标表扫描作为输入。
         LogicalOperator root = new LogicalTableScanOperator(tableName, dbManager);
+        // 保存表名和 WHERE 条件，生成 LogicalDeleteOperator。
         return new LogicalDeleteOperator(root, tableName, deleteStmt.getWhere());
     }
 
     private static boolean isCountSelect(PlainSelect plainSelect) {
+        // count(*) 不是普通投影，需要单独识别为计数算子。
         if (plainSelect.getSelectItems() == null || plainSelect.getSelectItems().size() != 1) {
             return false;
         }
@@ -174,6 +183,7 @@ public class LogicalPlanner {
     }
 
     private static boolean isAggregateSelect(PlainSelect plainSelect) {
+        // 识别 GROUP BY 或 min/max/sum/avg/count 聚合函数。
         if (plainSelect.getGroupBy() != null) {
             return true;
         }
@@ -197,6 +207,7 @@ public class LogicalPlanner {
     }//识别 min/max/sum/avg/count，或者只要有 GROUP BY 就认为是聚合查询
 
     private static List<Expression> getGroupByExpressions(PlainSelect plainSelect) {
+        // 提取 GROUP BY 后面的表达式列表。
         if (plainSelect.getGroupBy() == null || plainSelect.getGroupBy().getGroupByExpressionList() == null) {
             return List.of();
         }
@@ -271,12 +282,14 @@ public class LogicalPlanner {
         }
         Matcher alterAddColumnMatcher = ALTER_ADD_COLUMN_PATTERN.matcher(normalizedSql);
         if (alterAddColumnMatcher.matches()) {
+            // ALTER TABLE t ADD COLUMN c TYPE 直接执行：更新元数据并重写数据文件。
             dbManager.addColumn(alterAddColumnMatcher.group(1), alterAddColumnMatcher.group(2),
                     alterAddColumnMatcher.group(3));
             return true;
         }
         Matcher alterDropColumnMatcher = ALTER_DROP_COLUMN_PATTERN.matcher(normalizedSql);
         if (alterDropColumnMatcher.matches()) {
+            // ALTER TABLE t DROP COLUMN c 也直接处理，不生成物理算子。
             dbManager.dropColumn(alterDropColumnMatcher.group(1), alterDropColumnMatcher.group(2));
             return true;
         }

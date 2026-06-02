@@ -2,7 +2,6 @@ package edu.sustech.cs307.logicalOperator;
 
 import edu.sustech.cs307.exception.DBException;
 import edu.sustech.cs307.exception.ExceptionTypes;
-import edu.sustech.cs307.logicalOperator.LogicalTableScanOperator;
 import edu.sustech.cs307.meta.TabCol;
 import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.statement.select.AllColumns;
@@ -34,7 +33,7 @@ public class LogicalProjectOperator extends LogicalOperator {
     public List<TabCol> getOutputSchema() throws DBException {
         List<TabCol> outputSchema = new ArrayList<>();
         for (SelectItem<?> selectItem : selectItems) {
-            if (selectItem.getExpression() instanceof AllColumns column) {
+            if (selectItem.getExpression() instanceof AllColumns) {
                 outputSchema.add(new TabCol("*", "*"));
             } else if (selectItem.getExpression() instanceof Column column) {
                 String tableName = column.getTableName();
@@ -61,22 +60,6 @@ public class LogicalProjectOperator extends LogicalOperator {
 
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder();
-        String nodeHeader = "ProjectOperator(selectItems=" + selectItems + ")";
-        String[] childLines = child.toString().split("\\R");
-
-        // 当前节点
-        sb.append(nodeHeader);
-
-        // 子节点处理
-        if (childLines.length > 0) {
-            sb.append("\n└── ").append(childLines[0]);
-            for (int i = 1; i < childLines.length; i++) {
-                sb.append("\n    ").append(childLines[i]);
-            }
-        }
-
-        return sb.toString();
+        return formatUnaryTree("ProjectOperator(selectItems=" + selectItems + ")", child);
     }
-
 }

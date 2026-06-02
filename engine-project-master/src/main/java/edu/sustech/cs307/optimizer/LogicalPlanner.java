@@ -194,7 +194,7 @@ public class LogicalPlanner {
             }
         }
         return false;
-    }
+    }//识别 min/max/sum/avg/count，或者只要有 GROUP BY 就认为是聚合查询
 
     private static List<Expression> getGroupByExpressions(PlainSelect plainSelect) {
         if (plainSelect.getGroupBy() == null || plainSelect.getGroupBy().getGroupByExpressionList() == null) {

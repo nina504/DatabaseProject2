@@ -25,6 +25,6 @@ public class LogicalSortOperator extends LogicalOperator {
 
     @Override
     public String toString() {
-        return "SortOperator(orderBy=" + orderByElements + ")\n └── " + child;
+        return formatUnaryTree("SortOperator(orderBy=" + orderByElements + ")", child);
     }
 }

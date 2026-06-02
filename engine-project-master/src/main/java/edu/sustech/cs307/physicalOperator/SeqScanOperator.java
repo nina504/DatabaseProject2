@@ -41,7 +41,7 @@ public class SeqScanOperator implements PhysicalOperator {
     }
 
     @Override
-    public boolean hasNext() {
+    public boolean hasNext() { //寻找下一个有效slot
         if (!isOpen)
             return false;
         try {
@@ -51,7 +51,7 @@ public class SeqScanOperator implements PhysicalOperator {
                     RecordPageHandle pageHandle = fileHandle.FetchPageHandle(currentPageNum);
                     while (currentSlotNum < recordsPerPage) {
                         if (BitMap.isSet(pageHandle.bitmap, currentSlotNum)) {
-                            return true; // Found next record
+                            return true; // Found next record(bitmap为1的slot才有效)
                         }
                         currentSlotNum++;
                     }
@@ -68,7 +68,7 @@ public class SeqScanOperator implements PhysicalOperator {
     @Override
     public void Begin() throws DBException {
         try {
-            fileHandle = dbManager.getRecordManager().OpenFile(tableName);
+            fileHandle = dbManager.getRecordManager().OpenFile(tableName);//打开表文件
             totalPages = fileHandle.getFileHeader().getNumberOfPages() - 1;
             recordsPerPage = fileHandle.getFileHeader().getNumberOfRecordsPrePage();
             currentPageNum = 0; // Start from first data page

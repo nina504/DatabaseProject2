@@ -16,6 +16,6 @@ public class LogicalCountOperator extends LogicalOperator {
 
     @Override
     public String toString() {
-        return "CountOperator()\n └── " + child;
+        return formatUnaryTree("CountOperator()", child);
     }
 }

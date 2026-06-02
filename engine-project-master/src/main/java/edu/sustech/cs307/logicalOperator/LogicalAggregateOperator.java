@@ -33,16 +33,7 @@ public class LogicalAggregateOperator extends LogicalOperator {
 
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("AggregateOperator(selectItems=").append(selectItems)
-                .append(", groupBy=").append(groupByExpressions).append(")");
-        String[] childLines = child.toString().split("\\R");
-        if (childLines.length > 0) {
-            sb.append("\n`-- ").append(childLines[0]);
-            for (int i = 1; i < childLines.length; i++) {
-                sb.append("\n    ").append(childLines[i]);
-            }
-        }
-        return sb.toString();
+        return formatUnaryTree("AggregateOperator(selectItems=" + selectItems
+                + ", groupBy=" + groupByExpressions + ")", child);
     }
 }
